@@ -1,0 +1,284 @@
+---
+## SONDA — reconocimiento del Execution Environment (EE) de AAP
+##
+## Objetivo: averiguar qué tiene y a qué accede el EE custom donde AAP
+## ejecuta los playbooks de iidr-admin, ANTES de construir los playbooks
+## de negocio. iidr.sh necesita, en la máquina donde corre: Java, los
+## JARs de IIDR (chcclp.jar, server.jar + ~23 deps) y el truststore.
+## Esta sonda comprueba si el EE los tiene (o puede alcanzarlos por NFS).
+##
+## Uso en AAP:
+##   1. Job Template sobre este playbook, con el EE custom.
+##   2. NO hace falta ninguna credential (solo lectura, sin secretos).
+##   3. Lanzar y traer el output completo.
+##
+## Con la salida se decide la vía de acceso a los JARs:
+##   - Si /u01/repo está montado con los JARs -> montar NFS (táctica preferida).
+##   - Si no -> meter JARs en el repo, o esperar a que los metan en el EE.
+##
+## Es solo lectura y tolerante a fallos: cada bloque captura su error para
+## que la sonda termine y muestre TODO, aunque algún comando no exista.
+
+- name: Sonda de reconocimiento del EE
+  hosts: localhost
+  connection: local
+  become: false
+  # Solo el subset mínimo: evitamos 'hardware' (dmidecode) que suele
+  # fallar por permisos en contenedores/hosts sin acceso a /usr/sbin/dmidecode.
+  gather_facts: true
+  gather_subset:
+    - "!all"
+    - "!hardware"
+    - min
+
+  vars:
+    # AS de DEV — para la prueba de conectividad de red.
+    # Probamos FQDN y nombre corto por separado: en un EE (contenedor) el
+    # DNS puede resolver el FQDN pero no el nombre corto, o ninguno. Saberlo
+    # es clave (es el tipo de fallo de conectividad que ve GoldenGate).
+    probe_as_fqdn: lesawsew131211.es.mapfre.net
+    probe_as_short: lesawsew131211
+    probe_as_host: lesawsew131211.es.mapfre.net
+    probe_as_port: 10101
+    # Rutas del deploy NFS que iidr.sh necesitaría ver.
+    probe_nfs_root: /u01/repo/automation/iidr-ctl
+    probe_nfs_libs: /u01/repo/automation/iidr-ctl/iidr-cli-libs/lib
+
+  tasks:
+
+    # ── 1. Identidad y sistema ────────────────────────────────────────
+    - name: "1. Identidad / SO"
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - id
+        - "uname -a"
+        - "cat /etc/os-release"
+      register: probe_id
+      changed_when: false
+      failed_when: false
+
+    - name: "1. Identidad / SO — salida"
+      ansible.builtin.debug:
+        msg: "{{ probe_id.results | map(attribute='stdout') | list }}"
+
+    # ── 2. Java — búsqueda exhaustiva ─────────────────────────────────
+    - name: "2. Java — which/version/JAVA_HOME + búsqueda por todo el FS"
+      ansible.builtin.shell: |
+        echo "which java: $(command -v java 2>&1)"
+        echo "JAVA_HOME: ${JAVA_HOME:-<no definido>}"
+        echo "PATH: $PATH"
+        echo "java -version:"; java -version 2>&1 || echo "  (java no ejecutable)"
+        echo "--- ubicaciones típicas de JDK ---"
+        ls -d /opt/*jdk* /opt/*semeru* /opt/*java* /usr/lib/jvm/* /usr/java/* 2>/dev/null || echo "  (nada en /opt /usr/lib/jvm /usr/java)"
+        echo "--- rpm -qa java/jdk ---"; rpm -qa 2>/dev/null | grep -iE "jdk|java|jre|semeru|temurin" || echo "  (ningún paquete java)"
+        echo "--- find binarios 'java' en todo el FS (limitado) ---"; find / -name java -type f 2>/dev/null | head -10 || echo "  (ninguno)"
+      register: probe_java
+      changed_when: false
+      failed_when: false
+
+    - name: "2. Java — salida"
+      ansible.builtin.debug:
+        msg: "{{ probe_java.stdout_lines }}"
+
+    # ── 3. NFS /u01/repo y JARs de IIDR ───────────────────────────────
+    - name: "3. NFS — ¿montado y con los JARs?"
+      ansible.builtin.shell: |
+        echo "mount /u01/repo:"; mountpoint /u01/repo 2>&1 || echo "  (no es punto de montaje o no existe)"
+        echo "raiz deploy ({{ probe_nfs_root }}):"; ls -la {{ probe_nfs_root }} 2>&1 || echo "  (no accesible)"
+        echo "iidr.sh:"; ls -la {{ probe_nfs_root }}/bin/iidr.sh 2>&1 || echo "  (no)"
+        echo "truststore:"; ls -la {{ probe_nfs_root }}/conf/cdc_truststore_AccessServer.p12 2>&1 || echo "  (no)"
+        echo "JARs IIDR ({{ probe_nfs_libs }}):"; ls -1 {{ probe_nfs_libs }}/*.jar 2>/dev/null | wc -l | xargs echo "  numero de .jar:"
+      register: probe_nfs
+      changed_when: false
+      failed_when: false
+
+    - name: "3. NFS — salida"
+      ansible.builtin.debug:
+        msg: "{{ probe_nfs.stdout_lines }}"
+
+    # ── 3b. Filesystem del EE + viabilidad de montar EFS ──────────────
+    # El NFS real es AWS EFS (fstab de la máquina 11):
+    #   fs-0f559acb530afec90.efs.eu-west-1.amazonaws.com:/  -> /u01/repo
+    # Para montar dentro del EE haría falta: cliente nfs4, capacidad
+    # SYS_ADMIN (los EE normalmente NO la tienen) y red al endpoint EFS.
+    # Este bloque explora el FS del contenedor y esos requisitos.
+    - name: "3b. Filesystem del EE y viabilidad de montaje EFS"
+      ansible.builtin.shell: |
+        echo "--- / (raíz del contenedor) ---"; ls -la / 2>&1
+        echo "--- /runner ---"; ls -la /runner 2>&1 || echo "  (no)"
+        echo "--- /u01 (¿existe algo?) ---"; ls -la /u01 2>&1 || echo "  (no existe /u01)"
+        echo "--- ¿cliente NFS? (mount.nfs4) ---"; command -v mount.nfs4 mount.nfs 2>&1 || echo "  (sin cliente nfs)"
+        echo "--- capabilities del proceso ---"; grep -E "Cap(Prm|Eff|Bnd)" /proc/self/status 2>&1 || echo "  (no legible)"
+        echo "--- red al endpoint EFS (:2049) ---"; timeout 5 bash -c 'cat < /dev/null > /dev/tcp/fs-0f559acb530afec90.efs.eu-west-1.amazonaws.com/2049' 2>&1 && echo "  EFS:2049 ALCANZABLE" || echo "  EFS:2049 no alcanzable"
+      register: probe_fs
+      changed_when: false
+      failed_when: false
+
+    - name: "3b. Filesystem del EE — salida"
+      ansible.builtin.debug:
+        msg: "{{ probe_fs.stdout_lines }}"
+
+    # ── 3c. JARs de IIDR + truststore + CLI HORNEADOS en el EE ─────────
+    # Desde 2026-07-30 el EE nuevo trae Java Semeru (confirmado,
+    # /opt/java/current) y, según nos dicen, las 25 librerías de IIDR. Como
+    # NO están en la ruta del NFS (bloque 3), se buscan por el FS por sus
+    # JARs firma (chcclp/server/api, inconfundibles). El PADRE del dir que
+    # contiene chcclp.jar es el IIDR_HOME a usar para ejecutar en el EE sin
+    # SSH. También se localiza el truststore y iidr.sh/iidr-ctl.py/el jar.
+    - name: "3c. JARs de IIDR / truststore / CLI horneados en el EE"
+      ansible.builtin.shell: |
+        echo "--- JARs firma de IIDR (chcclp/server/api) por el FS ---"
+        find / -xdev \( -name "chcclp.jar" -o -name "server.jar" -o -name "api.jar" \) 2>/dev/null \
+          || echo "  (no encontrados)"
+        echo "--- dir(s) con chcclp.jar, nº de jars e IIDR_HOME candidato ---"
+        for j in $(find / -xdev -name "chcclp.jar" 2>/dev/null); do
+          d=$(dirname "$j")
+          echo "  lib dir: $d  ($(ls -1 "$d"/*.jar 2>/dev/null | wc -l) jars)"
+          echo "    -> IIDR_HOME candidato (padre de lib/): $(dirname "$d")"
+        done
+        echo "--- rutas candidatas típicas ---"
+        ls -d /opt/*iidr* /opt/*cdc* /opt/*IIDR* /opt/*replication* \
+              /u01/IIDR* /runner/*iidr* 2>/dev/null || echo "  (nada en las típicas)"
+        echo "--- truststore(s) p12 ---"
+        find / -xdev \( -name "cdc_truststore*.p12" -o -name "*truststore*.p12" \) 2>/dev/null \
+          || echo "  (no encontrados)"
+        echo "--- iidr.sh / iidr-ctl.py / iidr-admin.jar ---"
+        find / -xdev \( -name "iidr.sh" -o -name "iidr-ctl.py" -o -name "iidr-admin*.jar" \) 2>/dev/null \
+          || echo "  (no encontrados)"
+      register: probe_baked
+      changed_when: false
+      failed_when: false
+
+    - name: "3c. JARs/truststore/CLI horneados — salida"
+      ansible.builtin.debug:
+        msg: "{{ probe_baked.stdout_lines }}"
+
+    # ── 4. Red al Access Server (puerto de administración) ─────────────
+    # 4a. Resolución DNS (FQDN, nombre corto) + /etc/hosts + /etc/resolv.conf
+    - name: "4a. DNS — resolución de nombres"
+      ansible.builtin.shell: |
+        echo "getent hosts FQDN ({{ probe_as_fqdn }}):"; getent hosts {{ probe_as_fqdn }} 2>&1 || echo "  NO resuelve"
+        echo "getent hosts corto ({{ probe_as_short }}):"; getent hosts {{ probe_as_short }} 2>&1 || echo "  NO resuelve"
+        echo "--- /etc/resolv.conf ---"; cat /etc/resolv.conf 2>&1 || echo "  (no accesible)"
+        echo "--- /etc/hosts ---"; cat /etc/hosts 2>&1 || echo "  (no accesible)"
+      register: probe_dns
+      changed_when: false
+      failed_when: false
+
+    - name: "4a. DNS — salida"
+      ansible.builtin.debug:
+        msg: "{{ probe_dns.stdout_lines }}"
+
+    # 4b. Conectividad TCP por FQDN
+    - name: "4b. Red — TCP al AS por FQDN {{ probe_as_fqdn }}:{{ probe_as_port }}"
+      ansible.builtin.wait_for:
+        host: "{{ probe_as_fqdn }}"
+        port: "{{ probe_as_port }}"
+        timeout: 8
+        state: started
+      register: probe_net_fqdn
+      failed_when: false
+
+    # 4c. Conectividad TCP por nombre corto
+    - name: "4c. Red — TCP al AS por nombre corto {{ probe_as_short }}:{{ probe_as_port }}"
+      ansible.builtin.wait_for:
+        host: "{{ probe_as_short }}"
+        port: "{{ probe_as_port }}"
+        timeout: 8
+        state: started
+      register: probe_net_short
+      failed_when: false
+
+    - name: "4. Red — resultado"
+      ansible.builtin.debug:
+        msg:
+          - "FQDN  {{ probe_as_fqdn }}:{{ probe_as_port }} => {{ 'ALCANZABLE' if probe_net_fqdn.state | default('') == 'started' else 'NO ALCANZABLE' }}{{ ' (' ~ probe_net_fqdn.msg ~ ')' if probe_net_fqdn.msg is defined else '' }}"
+          - "CORTO {{ probe_as_short }}:{{ probe_as_port }} => {{ 'ALCANZABLE' if probe_net_short.state | default('') == 'started' else 'NO ALCANZABLE' }}{{ ' (' ~ probe_net_short.msg ~ ')' if probe_net_short.msg is defined else '' }}"
+
+    # ── 4d. SSH saliente hacia la máquina 11 (vía táctica) ─────────────
+    # Si el EE puede hacer SSH a la 11 (que SÍ tiene Java+JARs+NFS),
+    # podríamos ejecutar iidr.sh vía delegate_to/SSH en la 11 mientras no
+    # rehagan el EE. Comprobamos: cliente ssh en el EE + puerto 22 abierto.
+    - name: "4d. SSH — ¿hay cliente ssh en el EE?"
+      ansible.builtin.shell: |
+        echo "which ssh: $(command -v ssh 2>&1)"
+        echo "which sshpass: $(command -v sshpass 2>&1)"
+      register: probe_ssh_bin
+      changed_when: false
+      failed_when: false
+
+    - name: "4d. SSH — ¿puerto 22 de la 11 alcanzable?"
+      ansible.builtin.wait_for:
+        host: "{{ probe_as_fqdn }}"
+        port: 22
+        timeout: 8
+        state: started
+      register: probe_ssh_port
+      failed_when: false
+
+    - name: "4d. SSH — resultado"
+      ansible.builtin.debug:
+        msg:
+          - "{{ probe_ssh_bin.stdout_lines }}"
+          - "SSH {{ probe_as_fqdn }}:22 => {{ 'ALCANZABLE' if probe_ssh_port.state | default('') == 'started' else 'NO ALCANZABLE' }}{{ ' (' ~ probe_ssh_port.msg ~ ')' if probe_ssh_port.msg is defined else '' }}"
+
+    # ── 5. Working dir del job (checkout del proyecto) ────────────────
+    - name: "5. Working dir — pwd y contenido del checkout"
+      ansible.builtin.shell: |
+        echo "pwd: $(pwd)"
+        echo "playbook_dir: {{ playbook_dir }}"
+        echo "--- arbol del proyecto (2 niveles desde playbook_dir/..) ---"
+        find {{ playbook_dir }}/.. -maxdepth 2 -not -path '*/.git/*' 2>/dev/null | sort | head -60
+      register: probe_wd
+      changed_when: false
+      failed_when: false
+
+    - name: "5. Working dir — salida"
+      ansible.builtin.debug:
+        msg: "{{ probe_wd.stdout_lines }}"
+
+    # ── 6. Permisos de escritura en /tmp (para el tls.properties) ─────
+    - name: "6. /tmp — ¿escribible? (iidr.sh escribe tls.properties en un temp)"
+      ansible.builtin.shell: |
+        d=$(mktemp -d -t iidr-probe-XXXXXX 2>&1) && echo "mktemp OK: $d" && rmdir "$d" || echo "mktemp FALLO: $d"
+        echo "getenforce:"; getenforce 2>&1 || echo "  (SELinux no disponible/no aplica)"
+      register: probe_tmp
+      changed_when: false
+      failed_when: false
+
+    - name: "6. /tmp — salida"
+      ansible.builtin.debug:
+        msg: "{{ probe_tmp.stdout_lines }}"
+
+    # ── 7. Ansible / colecciones del EE ───────────────────────────────
+    - name: "7. Ansible — versión"
+      ansible.builtin.debug:
+        msg: "ansible_version: {{ ansible_version.full }} | python: {{ ansible_python_version | default('?') }}"
+
+    - name: "7. Ansible — colecciones instaladas"
+      ansible.builtin.shell: "ansible-galaxy collection list 2>&1 || echo '(ansible-galaxy collection list no soportado en esta version)'"
+      register: probe_coll
+      changed_when: false
+      failed_when: false
+
+    - name: "7. Ansible — colecciones (salida)"
+      ansible.builtin.debug:
+        msg: "{{ probe_coll.stdout_lines | default(['(no disponible)']) }}"
+
+    # ── Resumen final ─────────────────────────────────────────────────
+    - name: "RESUMEN — señales clave para decidir la vía de JARs"
+      ansible.builtin.debug:
+        msg: |
+          ================ RESUMEN SONDA EE ================
+          Revisar arriba en detalle. Puntos clave a decidir:
+            - ¿Hay java ejecutable en el EE?  (bloque 2)  [Semeru 17: /opt/java/current]
+            - ¿/u01/repo montado con los ~25 JARs?  (bloque 3)
+            - ¿JARs/truststore/CLI HORNEADOS en el EE?  (bloque 3c)  <- vía objetivo (sin SSH)
+                IIDR_HOME = padre del dir con chcclp.jar
+            - ¿DNS resuelve el AS (FQDN y/o corto)?  (bloque 4a)
+            - ¿AS alcanzable por FQDN y/o nombre corto?  (bloques 4b/4c)
+            - ¿SSH del EE a la 11 posible? (vía táctica delegate_to)  (bloque 4d)
+            - ¿Está iidr.sh / iidr-admin.jar en el checkout?  (bloque 5)
+            - ¿/tmp escribible?  (bloque 6)
+          Con esto se elige: ejecutar EN el EE (bloque 3c ok)  |  SSH a la 11.
+          ==================================================

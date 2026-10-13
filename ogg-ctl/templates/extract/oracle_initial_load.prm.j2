@@ -1,0 +1,38 @@
+-- BUG OGG-00664 Error 24459 on OCI call [ORA] - ORA-24456: OCISessionGet() timed out waiting for pool to create new connections
+SETENV(OGG_AS_OCI_CONNECT_TIMEOUT = '20' )
+
+EXTRACT {{ extract_name }}
+
+-- DB Connection
+USERIDALIAS {{ useridalias }}{% if domain %} DOMAIN {{ domain }}{% endif %}
+
+-- Encryption using local wallet master key
+ENCRYPTTRAIL AES256
+
+-- TRAIL NAME
+EXTFILE {{ trail_path }} MEGABYTES 2000 PURGE
+
+-- Write capture stats per table to the report file daily.
+REPORT AT 00:01
+
+-- Rollover the report file weekly
+REPORTROLLOVER AT 00:01 ON SUNDAY
+
+-- Report total operations captured, and operations per second
+REPORTCOUNT EVERY 5 MINUTES, RATE
+
+--Number of rows per fetch
+DBOPTIONS FETCHBATCHSIZE 1000000
+
+{% if sourcecatalog %}
+-- Specifies PDB/catalog 
+SOURCECATALOG {{ sourcecatalog }}
+{% endif %}
+
+-- Tables
+{% for line in table_lines %}
+{{ line }}
+{% endfor %}
+
+
+

@@ -1,0 +1,477 @@
+---
+# stop_ogg.yml — Gracefully stop an Oracle GoldenGate 26ai Microservices deployment.
+#
+# Two-play design:
+#   Play 1 (localhost)  — stop GoldenGate processes via oggctl
+#                         Uses the same auth as all other automation (basic → Entra ID Bearer)
+#   Play 2 (OGG node)  — kill the Service Manager, write the version marker to EFS
+#
+# Scenarios (same playbook — operator selects target node in AAP):
+#   Maintenance  : stop on active node → do work → start_ogg.yml on same node
+#   HA failover  : stop on active node → start_ogg.yml on passive node
+#   DR failover  : stop on primary node → (AWS promotes EFS RW) → start_ogg.yml on DR node
+#
+# AAP survey variables:
+#   target_host      — Hostname or IP of the OGG EC2 node to SSH into
+#                      (e.g. ogg-cdc-odb-ora-e01-aws-dev.internal)
+#   ogg_deployment   — Deployment key from inventory.yaml
+#                      (e.g. OGG_CDC_ODB_ORA_E01_AWS_DEV)
+#
+# AAP credentials attached to the job template:
+#   Vault / AWS SM   — provides ogg_admin_password (basic auth fallback)
+#   AWS SM           — injects OGG_AUTH_PROFILE_CLIENT_SECRET (Entra ID Bearer)
+#   SSH              — access to the OGG EC2 node (Play 2)
+#
+# Local run example (maintenance scenario):
+#   ansible-playbook service-controller/ogg/stop_ogg.yml \
+#     -e target_host=ogg-cdc-odb-ora-e01-aws-dev.internal \
+#     -e ogg_deployment=OGG_CDC_ODB_ORA_E01_AWS_DEV \
+#     -e @vault/ogg_passwords.yml --vault-password-file ~/.vault_pass
+
+
+# ── Play 0: Register target host in the in-memory inventory ──────────────────
+
+- name: Register OGG target node
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  pre_tasks:
+    - name: Assert required variables
+      ansible.builtin.assert:
+        that:
+          - target_host is defined and target_host | length > 0
+          - ogg_deployment is defined and ogg_deployment | length > 0
+        fail_msg: >-
+          Both target_host and ogg_deployment must be provided via the AAP survey
+          or --extra-vars.
+
+  tasks:
+    - name: Add OGG node to in-memory inventory
+      ansible.builtin.add_host:
+        name: "{{ target_host }}"
+        groups: ogg_node
+
+
+# ── Play 1: Stop GoldenGate processes via oggctl (from AAP execution node) ────
+
+- name: Stop GoldenGate processes
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    - vars/defaults.yml
+
+  vars:
+    _venv: "{{ playbook_dir }}/../../.venv_cdc"
+    _oggctl: "{{ playbook_dir }}/../../ogg-ctl/oggctl.py"
+
+  pre_tasks:
+    - name: Install Python dependencies into .venv_cdc
+      ansible.builtin.pip:
+        requirements: "{{ playbook_dir }}/../../requirements.txt"
+        virtualenv: "{{ _venv }}"
+        virtualenv_command: python3 -m venv
+        state: present
+
+  tasks:
+
+    # ── Auth probe ────────────────────────────────────────────────────────────
+    # Runs before any process operation. Distinguishes two failure modes:
+    #   - Connection failed / timed out  → SM is likely already stopped; end
+    #     this play cleanly and let the SSH play verify SM state.
+    #   - Auth rejected (401) or not configured → real error; fail loudly.
+
+    - name: Probe OGG API authentication
+      ansible.builtin.command:
+        argv:
+          - "{{ _venv }}/bin/python3"
+          - "{{ _oggctl }}"
+          - deployment
+          - check-auth
+          - --deployment
+          - "{{ ogg_deployment }}"
+      register: _auth_probe
+      changed_when: false
+      failed_when: false
+      environment:
+        OGG_ADMIN_PASSWORD: "{{ ogg_admin_password | default('') }}"
+
+    - name: Fail — OGG authentication not configured or credentials rejected
+      ansible.builtin.fail:
+        msg: >-
+          OGG authentication failed for deployment '{{ ogg_deployment }}'.
+          Provide either ogg_admin_password (basic auth) or ensure
+          OGG_AUTH_PROFILE_CLIENT_SECRET is set (Entra ID Bearer).
+          Detail: {{ _auth_probe.stderr | default('') | trim }}
+      when:
+        - _auth_probe.rc != 0
+        - "'Connection failed' not in (_auth_probe.stderr | default(''))"
+        - "'timed out' not in (_auth_probe.stderr | default(''))"
+
+    - name: Skip process stop — OGG API unreachable, SM may already be stopped
+      ansible.builtin.debug:
+        msg: >-
+          OGG API on {{ target_host }} is not reachable (connection refused or timeout).
+          Skipping GoldenGate process stop via oggctl.
+          The SSH play will check SM state and exit cleanly if it is already stopped.
+      when:
+        - _auth_probe.rc != 0
+        - >-
+          'Connection failed' in (_auth_probe.stderr | default(''))
+          or 'timed out' in (_auth_probe.stderr | default(''))
+
+    - name: End play — OGG API unreachable
+      ansible.builtin.meta: end_play
+      when:
+        - _auth_probe.rc != 0
+        - >-
+          'Connection failed' in (_auth_probe.stderr | default(''))
+          or 'timed out' in (_auth_probe.stderr | default(''))
+
+    - name: List all Extract processes
+      ansible.builtin.command:
+        argv:
+          - "{{ _venv }}/bin/python3"
+          - "{{ _oggctl }}"
+          - extract
+          - list
+          - --deployment
+          - "{{ ogg_deployment }}"
+          - --format
+          - json
+      register: _ext_list
+      changed_when: false
+      failed_when: false
+      no_log: true
+      environment:
+        OGG_ADMIN_PASSWORD: "{{ ogg_admin_password | default('') }}"
+
+    - name: Stop running Extract processes
+      ansible.builtin.command:
+        argv:
+          - "{{ _venv }}/bin/python3"
+          - "{{ _oggctl }}"
+          - extract
+          - stop
+          - "{{ item.name }}"
+          - --deployment
+          - "{{ ogg_deployment }}"
+      loop: >-
+        {{ (_ext_list.stdout | from_json)
+           | selectattr('status', 'in', ['running', 'starting', 'abending'])
+           | list }}
+      loop_control:
+        label: "{{ item.name }}"
+      when: _ext_list.rc == 0
+      ignore_errors: true
+      no_log: true
+      environment:
+        OGG_ADMIN_PASSWORD: "{{ ogg_admin_password | default('') }}"
+
+    - name: List all Replicat processes
+      ansible.builtin.command:
+        argv:
+          - "{{ _venv }}/bin/python3"
+          - "{{ _oggctl }}"
+          - replicat
+          - list
+          - --deployment
+          - "{{ ogg_deployment }}"
+          - --format
+          - json
+      register: _rep_list
+      changed_when: false
+      failed_when: false
+      no_log: true
+      environment:
+        OGG_ADMIN_PASSWORD: "{{ ogg_admin_password | default('') }}"
+
+    - name: Stop running Replicat processes
+      ansible.builtin.command:
+        argv:
+          - "{{ _venv }}/bin/python3"
+          - "{{ _oggctl }}"
+          - replicat
+          - stop
+          - "{{ item.name }}"
+          - --deployment
+          - "{{ ogg_deployment }}"
+      loop: >-
+        {{ (_rep_list.stdout | from_json)
+           | selectattr('status', 'in', ['running', 'starting', 'abending'])
+           | list }}
+      loop_control:
+        label: "{{ item.name }}"
+      when: _rep_list.rc == 0
+      ignore_errors: true
+      no_log: true
+      environment:
+        OGG_ADMIN_PASSWORD: "{{ ogg_admin_password | default('') }}"
+
+    - name: List all Distribution paths
+      ansible.builtin.command:
+        argv:
+          - "{{ _venv }}/bin/python3"
+          - "{{ _oggctl }}"
+          - distribution-path
+          - list
+          - --deployment
+          - "{{ ogg_deployment }}"
+          - --format
+          - json
+      register: _dp_list
+      changed_when: false
+      failed_when: false
+      no_log: true
+      environment:
+        OGG_ADMIN_PASSWORD: "{{ ogg_admin_password | default('') }}"
+
+    - name: Stop running Distribution paths
+      ansible.builtin.command:
+        argv:
+          - "{{ _venv }}/bin/python3"
+          - "{{ _oggctl }}"
+          - distribution-path
+          - stop
+          - "{{ item.name }}"
+          - --deployment
+          - "{{ ogg_deployment }}"
+      loop: >-
+        {{ (_dp_list.stdout | from_json)
+           | selectattr('status', 'in', ['running', 'starting'])
+           | list }}
+      loop_control:
+        label: "{{ item.name }}"
+      when: _dp_list.rc == 0
+      ignore_errors: true
+      no_log: true
+      environment:
+        OGG_ADMIN_PASSWORD: "{{ ogg_admin_password | default('') }}"
+
+    - name: List all Receiver paths
+      ansible.builtin.command:
+        argv:
+          - "{{ _venv }}/bin/python3"
+          - "{{ _oggctl }}"
+          - receiver-path
+          - list
+          - --deployment
+          - "{{ ogg_deployment }}"
+          - --format
+          - json
+      register: _rp_list
+      changed_when: false
+      failed_when: false
+      no_log: true
+      environment:
+        OGG_ADMIN_PASSWORD: "{{ ogg_admin_password | default('') }}"
+
+    - name: Stop running Receiver paths
+      ansible.builtin.command:
+        argv:
+          - "{{ _venv }}/bin/python3"
+          - "{{ _oggctl }}"
+          - receiver-path
+          - stop
+          - "{{ item.name }}"
+          - --deployment
+          - "{{ ogg_deployment }}"
+      loop: >-
+        {{ (_rp_list.stdout | from_json)
+           | selectattr('status', 'in', ['running', 'starting'])
+           | list }}
+      loop_control:
+        label: "{{ item.name }}"
+      when: _rp_list.rc == 0
+      ignore_errors: true
+      no_log: true
+      environment:
+        OGG_ADMIN_PASSWORD: "{{ ogg_admin_password | default('') }}"
+
+    - name: Stop deployment (graceful shutdown of admin/dist/recv/pm services)
+      ansible.builtin.command:
+        argv:
+          - "{{ _venv }}/bin/python3"
+          - "{{ _oggctl }}"
+          - deployment
+          - stop
+          - --deployment
+          - "{{ ogg_deployment }}"
+      register: _dep_stop
+      changed_when: true
+      ignore_errors: true
+      no_log: true
+      environment:
+        OGG_ADMIN_PASSWORD: "{{ ogg_admin_password | default('') }}"
+
+    - name: Warn if deployment stop returned an error
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Deployment stop API call failed (rc={{ _dep_stop.rc }}).
+          The SSH play will still kill the Service Manager process.
+      when: _dep_stop.rc != 0
+
+    - name: Log stopped processes
+      ansible.builtin.debug:
+        msg:
+          extracts: >-
+            {{ (_ext_list.stdout | from_json | map(attribute='name') | list)
+               if _ext_list.rc == 0 else [] }}
+          replicats: >-
+            {{ (_rep_list.stdout | from_json | map(attribute='name') | list)
+               if _rep_list.rc == 0 else [] }}
+          distribution_paths: >-
+            {{ (_dp_list.stdout | from_json | map(attribute='name') | list)
+               if _dp_list.rc == 0 else [] }}
+          receiver_paths: >-
+            {{ (_rp_list.stdout | from_json | map(attribute='name') | list)
+               if _rp_list.rc == 0 else [] }}
+          deployment_stop_rc: "{{ _dep_stop.rc }}"
+
+
+# ── Play 2: Stop Service Manager on the OGG node (SSH) ───────────────────────
+
+- name: Stop Service Manager and write version marker
+  hosts: ogg_node
+  gather_facts: true
+
+  vars_files:
+    - vars/defaults.yml
+
+  tasks:
+
+    # ── Idempotency check ─────────────────────────────────────────────────────
+
+    - name: Check if Service Manager is already stopped
+      ansible.builtin.wait_for:
+        host: localhost
+        port: "{{ ogg_sm_port }}"
+        state: started
+        timeout: 3
+      register: _sm_check
+      ignore_errors: true
+
+    - name: Inform — Service Manager is already stopped
+      ansible.builtin.debug:
+        msg: >-
+          Service Manager on port {{ ogg_sm_port }} is not running on {{ inventory_hostname }}.
+          Nothing to stop. Playbook finished successfully.
+      when: _sm_check is failed
+
+    - name: End play — Service Manager is already stopped
+      ansible.builtin.meta: end_play
+      when: _sm_check is failed
+
+    # ── Auto-discover instance paths from EFS ─────────────────────────────────
+
+    - name: Find deployment directory on EFS
+      ansible.builtin.find:
+        paths: "{{ ogg_deployment_home }}"
+        patterns: "{{ ogg_deployment }}"
+        file_type: directory
+        depth: 2
+      register: _dep_search
+
+    - name: Fail if deployment not found on EFS
+      ansible.builtin.fail:
+        msg: >-
+          Could not find '{{ ogg_deployment }}' under {{ ogg_deployment_home }}.
+          Verify the EFS is mounted and the deployment name matches the OGG web UI.
+      when: _dep_search.files | length == 0
+
+    - name: Derive instance paths
+      ansible.builtin.set_fact:
+        instance_dir: "{{ _dep_search.files[0].path | dirname }}"
+        ogg_instance: "{{ _dep_search.files[0].path | dirname | basename }}"
+        _version_marker: "{{ _dep_search.files[0].path | dirname }}/ogg_version"
+        _stop_sm_script: "{{ _dep_search.files[0].path | dirname }}/ServiceManager/bin/stopSM.sh"
+
+    - name: Show discovered paths
+      ansible.builtin.debug:
+        msg:
+          ogg_instance: "{{ ogg_instance }}"
+          instance_dir: "{{ instance_dir }}"
+
+    # ── Stop the Service Manager ──────────────────────────────────────────────
+    # Prefer the OGG-native stopSM.sh script; fall back to SIGTERM if absent.
+    # SIGKILL is a last resort after the graceful stop timeout expires.
+
+    - name: Check for stopSM.sh script
+      ansible.builtin.stat:
+        path: "{{ _stop_sm_script }}"
+      register: _stop_sm_stat
+
+    - name: Stop Service Manager via stopSM.sh
+      ansible.builtin.shell:
+        cmd: "{{ _stop_sm_script }}"
+      become: true
+      become_user: "{{ ogg_user }}"
+      changed_when: true
+      ignore_errors: true
+      when: _stop_sm_stat.stat.exists
+
+    - name: Stop Service Manager via SIGTERM (stopSM.sh not found)
+      ansible.builtin.shell:
+        cmd: "pkill -TERM -f 'ServiceManager' 2>/dev/null; true"
+      become: true
+      become_user: root
+      changed_when: true
+      ignore_errors: true
+      when: not _stop_sm_stat.stat.exists
+
+    - name: Wait for Service Manager port {{ ogg_sm_port }} to close
+      ansible.builtin.wait_for:
+        host: localhost
+        port: "{{ ogg_sm_port }}"
+        state: stopped
+        timeout: "{{ ogg_sm_stop_timeout }}"
+      register: _sm_stopped
+      ignore_errors: true
+
+    - name: Force-kill Service Manager if still running
+      ansible.builtin.shell:
+        cmd: "pkill -KILL -f 'ServiceManager' 2>/dev/null; true"
+      become: true
+      become_user: root
+      changed_when: true
+      when: _sm_stopped is failed
+      ignore_errors: true
+
+    # ── Write version marker to EFS ───────────────────────────────────────────
+
+    - name: Get local OGG binary version
+      ansible.builtin.shell:
+        cmd: >-
+          {{ ogg_home }}/bin/adminclient -v 2>/dev/null |
+          grep '^Version' ||
+          echo "unknown"
+      register: _ogg_version
+      become: true
+      become_user: "{{ ogg_user }}"
+      changed_when: false
+      failed_when: false
+
+    - name: Write version marker to EFS
+      ansible.builtin.copy:
+        content: |
+          version={{ _ogg_version.stdout | default('unknown') | trim }}
+          ogg_home={{ ogg_home }}
+          hostname={{ ansible_hostname }}
+          stopped_at={{ ansible_date_time.iso8601 }}
+          deployment={{ ogg_deployment }}
+        dest: "{{ _version_marker }}"
+        owner: "{{ ogg_user }}"
+        mode: "0644"
+      become: true
+      become_user: root
+
+    - name: Stop summary
+      ansible.builtin.debug:
+        msg:
+          deployment: "{{ ogg_deployment }}"
+          host: "{{ ansible_hostname }}"
+          ogg_instance: "{{ ogg_instance }}"
+          service_manager_stopped: "{{ _sm_stopped is not failed }}"
+          version_marker: "{{ _version_marker }}"

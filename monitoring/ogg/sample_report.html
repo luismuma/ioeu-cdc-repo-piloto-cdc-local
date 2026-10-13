@@ -1,0 +1,3209 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Oracle GoldenGate · Informe Diario · 14/09/2026 11:47</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Calibri, Arial, sans-serif; font-size: 13px; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+  .page { max-width: 1600px; margin: 0 auto; padding: 0 0 60px; }
+
+  /* ── Header ── */
+  .top-header { background: linear-gradient(135deg,#0f172a 0%,#1e3a5f 100%); border-bottom: 3px solid #0891b2; padding: 28px 40px 24px; display: flex; align-items: flex-end; justify-content: space-between; }
+  .top-header h1 { font-size: 32px; font-weight: 700; color: #fff; letter-spacing: -0.5px; }
+  .top-header .subtitle { font-size: 13px; color: #0891b2; letter-spacing: 3px; text-transform: uppercase; margin-top: 4px; }
+  .top-header .date-pill { background: #0891b2; color: #fff; font-weight: 700; padding: 6px 18px; border-radius: 20px; font-size: 13px; white-space: nowrap; }
+
+  /* ── Nav ── */
+  .nav { background: #1e2d42; display: flex; border-bottom: 1px solid #334155; padding: 0 40px; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+  .nav-tab { padding: 14px 22px; cursor: pointer; color: #94a3b8; font-weight: 600; font-size: 13px; border-bottom: 3px solid transparent; transition: all .15s; white-space: nowrap; user-select: none; }
+  .nav-tab:hover { color: #e2e8f0; }
+  .nav-tab.active { color: #0891b2; border-bottom-color: #0891b2; }
+
+  /* ── Panes ── */
+  .tab-pane { display: none; padding: 32px 40px; }
+  .tab-pane.active { display: block; }
+
+  /* ── Section header ── */
+  .section-header { font-size: 16px; font-weight: 700; color: #e2e8f0; margin: 0 0 16px; display: flex; align-items: center; gap: 12px; }
+  .section-meta { font-size: 11px; font-weight: 400; color: #64748b; }
+
+  /* ── KPI grid ── */
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, 280px); gap: 16px; margin-bottom: 32px; justify-content: start; }
+  .kpi-card { background: #162032; border-radius: 8px; padding: 20px 16px; border: 2px solid; text-align: center; }
+  .kpi-val   { font-size: 38px; font-weight: 700; line-height: 1; }
+  .kpi-label { font-size: 12px; font-weight: 600; color: #e2e8f0; margin-top: 8px; }
+  .kpi-sub   { font-size: 10px; color: #64748b; margin-top: 4px; }
+  .kpi-green { border-color: #059669; } .kpi-green .kpi-val { color: #059669; }
+  .kpi-amber { border-color: #d97706; } .kpi-amber .kpi-val { color: #d97706; }
+
+  /* ── Tooltips ── */
+  .tooltip-tipo { cursor: help; border-bottom: 1px dashed #64748b; }
+  .tooltip-info { cursor: help; }
+  #tt {
+    position: fixed; z-index: 9999; pointer-events: none;
+    background: #1e3a5f; color: #e2e8f0; font-size: 11px; font-weight: 400;
+    padding: 6px 10px; border-radius: 6px; white-space: nowrap;
+    border: 1px solid #334155; box-shadow: 0 4px 12px rgba(0,0,0,.4);
+    opacity: 0; transition: opacity .15s;
+  }
+
+  /* ── Alert banner ── */
+  .alert-banner { background: #fef2f2; color: #dc2626; border: 1px solid #dc2626; border-radius: 6px; padding: 10px 16px; font-weight: 700; font-size: 12px; margin-bottom: 24px; }
+
+  /* ── Tables ── */
+  .table-wrap { overflow-x: auto; border-radius: 8px; border: 1px solid #1e3a5f; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; white-space: nowrap; }
+  /* Description column: fixed max-width with ellipsis; full text shown on hover via title attr */
+  .col-desc { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Tabla name column in tablesTable */
+  #tablesTable td:first-child { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  thead tr { background: #1e3a5f; }
+  thead th { padding: 10px 12px; text-align: left; font-weight: 700; color: #e2e8f0; white-space: nowrap; border-right: 1px solid #264a73; }
+  #procsTable thead th, #tablesTable thead th { cursor: pointer; user-select: none; }
+  #procsTable thead th:hover, #tablesTable thead th:hover { background: #264a73; }
+  .sort-icon { margin-left: 5px; font-size: 10px; color: #0891b2; opacity: 0; transition: opacity .15s; }
+  .th-sort-asc .sort-icon, .th-sort-desc .sort-icon { opacity: 1; }
+  .th-sort-asc  .sort-icon::after { content: '▲'; }
+  .th-sort-desc .sort-icon::after { content: '▼'; }
+  thead th:last-child { border-right: none; }
+  tbody tr { border-bottom: 1px solid #1e2d42; transition: background .1s; }
+  tbody tr:hover { background: #1e2d42 !important; }
+  tbody td { padding: 7px 12px; vertical-align: middle; border-right: 1px solid #1a2840; }
+  tbody td:last-child { border-right: none; }
+  tbody tr:nth-child(even) { background: #111d2e; }
+  .row-pre { border-left: 3px solid #9333ea; }
+  .row-pro { border-left: 3px solid #1d4ed8; }
+  .tr-hidden { display: none !important; }
+
+  /* ── Badges ── */
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+  .badge-running                { background: #065f46; color: #6ee7b7; }
+  .badge-stopped                { background: #78350f; color: #fcd34d; }
+  .badge-abended, .badge-killed { background: #7f1d1d; color: #fca5a5; }
+  .badge-pending                { background: #1e3a5f; color: #7dd3fc; border: 1px solid #0891b2; }
+  .badge-dev                    { background: #065f46; color: #6ee7b7; }
+  .badge-pre                    { background: #581c87; color: #d8b4fe; }
+  .badge-pro                    { background: #1e3a8a; color: #93c5fd; }
+  .badge-extractor,
+  .badge-replicator             { background: #134e4a; color: #5eead4; }
+  .badge-tag  { display: inline-block; padding: 1px 6px; border-radius: 10px; font-size: 10px; font-weight: 600; white-space: nowrap; background: #1e3a5f; color: #7dd3fc; border: 1px solid #0891b2; }
+  .badge-cc   { background: #1a2e1a; color: #86efac; border-color: #16a34a; }
+
+  /* ── Deployment cards ── */
+  .dep-grid  { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .dep-card  { background: #111d2e; border-radius: 8px; border: 1px solid #1e3a5f; overflow: hidden; }
+  .dep-top-band { height: 5px; }
+  .band-running { background: #059669; }
+  .band-stopped { background: #d97706; }
+  .band-abended { background: #dc2626; }
+  .dep-header   { display: flex; justify-content: space-between; align-items: flex-start; padding: 14px 16px 8px; }
+  .dep-title    { font-size: 13px; font-weight: 700; color: #e2e8f0; font-family: 'Consolas', monospace; }
+  .dep-depname  { font-size: 11px; color: #64748b; margin-top: 2px; font-family: 'Consolas', monospace; }
+  .dep-role-badges { margin-top: 6px; display: flex; gap: 4px; flex-wrap: wrap; }
+  .dep-services { padding: 8px 16px 10px; font-size: 12px; color: #94a3b8; border-bottom: 1px solid #1e3a5f; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+  .dep-svc-label { font-weight: 600; margin-right: 4px; white-space: nowrap; }
+  .svc-item     { display: inline-flex; align-items: center; gap: 4px; background: #1e2d42; border-radius: 4px; padding: 2px 7px; font-size: 11px; }
+  .proc-group   { padding: 10px 16px; border-bottom: 1px solid #1a2840; }
+  .proc-group:last-child { border-bottom: none; }
+  .proc-group-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+  .proc-tipo  { font-size: 11px; font-weight: 700; color: #94a3b8; background: #1e2d42; padding: 2px 8px; border-radius: 4px; }
+  .proc-pills { display: flex; gap: 4px; flex-wrap: wrap; }
+  .proc-names { font-size: 11px; line-height: 1.8; }
+
+  /* ── Filter bar ── */
+  .filter-bar { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .filter-bar input, .filter-bar select { background: #1e2d42; border: 1px solid #334155; color: #e2e8f0; border-radius: 6px; padding: 7px 12px; font-size: 12px; outline: none; }
+  .filter-bar input { flex: 1; min-width: 200px; }
+  .filter-bar input:focus, .filter-bar select:focus { border-color: #0891b2; }
+  .btn-export { background: #0c4a6e; border: 1px solid #0891b2; color: #7dd3fc; border-radius: 6px;
+                padding: 7px 14px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+  .btn-export:hover { background: #0891b2; color: #fff; }
+
+  /* ── Carga Inicial progress bars ── */
+  .ini-progress-wrap { background: #1e3a5f; border-radius: 4px; height: 8px; width: 100%; min-width: 80px; overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 4px; }
+  .ini-progress-fill { background: linear-gradient(90deg, #0891b2, #06b6d4); height: 100%; border-radius: 4px; transition: width .3s; }
+
+  /* ── Stats mode toggle ── */
+  .toggle-group { display: inline-flex; border: 1px solid #334155; border-radius: 6px; overflow: hidden; white-space: nowrap; }
+  .toggle-btn { background: #1e2d42; color: #94a3b8; border: none; padding: 7px 16px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s; }
+  .toggle-btn:hover { background: #263a52; color: #e2e8f0; }
+  .toggle-btn.active { background: #0891b2; color: #fff; }
+  .badge-dev-btn.active { background: #065f46 !important; color: #6ee7b7 !important; }
+  .badge-pre-btn.active { background: #581c87 !important; color: #d8b4fe !important; }
+  .badge-pro-btn.active { background: #1e3a8a !important; color: #93c5fd !important; }
+
+  /* ── Grupo global filter bar ── */
+  .grupo-bar { background: #162032; border-bottom: 1px solid #1e3a5f; padding: 10px 40px; display: flex; align-items: center; gap: 12px; position: sticky; top: 47px; z-index: 99; }
+  .grupo-bar-label { font-size: 12px; font-weight: 600; color: #94a3b8; letter-spacing: 0.5px; }
+  .grupo-bar .toggle-btn.grupo-online.active      { background: #0d9488; color: #fff; }
+  .grupo-bar .toggle-btn.grupo-initialload.active { background: #d97706; color: #fff; }
+
+  body.grupo-Online      [data-grupo]:not([data-grupo="Online"])      { display: none !important; }
+  body.grupo-InitialLoad [data-grupo]:not([data-grupo="InitialLoad"]) { display: none !important; }
+  body.env-DEV [data-env]:not([data-env~="DEV"]) { display: none !important; }
+  body.env-PRE [data-env]:not([data-env~="PRE"]) { display: none !important; }
+  body.env-PRO [data-env]:not([data-env~="PRO"]) { display: none !important; }
+
+  /* ── Utilities ── */
+  .text-muted  { color: #64748b; }
+  .text-green  { color: #059669; }
+  .text-red    { color: #dc2626; }
+  .text-amber  { color: #d97706; font-weight: 600; }
+  .text-teal   { color: #0891b2; font-weight: 600; }
+  .text-purple { color: #7c3aed; font-weight: 600; }
+  .mono  { font-family: 'Consolas', monospace; font-size: 11px; }
+  .small { font-size: 11px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: middle; }
+  .dot-green { background: #059669; }
+  .dot-amber { background: #d97706; }
+  .lag-red   { color: #dc2626; font-weight: 700; }
+  .lag-amber { color: #d97706; font-weight: 700; }
+
+  /* ── Consumo tab ── */
+  .consumo-bar-wrap { background: #1e3a5f; border-radius: 3px; height: 6px; display: inline-block; vertical-align: middle; overflow: hidden; }
+  .consumo-bar-fill { height: 100%; border-radius: 3px; }
+  .fill-teal   { background: #0891b2; }
+  .fill-purple { background: #7c3aed; }
+  .fill-amber  { background: #d97706; }
+  .fill-green  { background: #059669; }
+  .fill-gray   { background: #475569; }
+  .team-unattr td { color: #64748b !important; font-style: italic; }
+  .env-breakdown-header { font-size: 12px; font-weight: 700; color: #94a3b8; margin: 24px 0 10px;
+                          letter-spacing: 0.5px; text-transform: uppercase; }
+  /* ── Consumo donut charts ── */
+  .consumo-charts-row { display:flex; gap:0; flex-wrap:wrap; background:#1e293b; border:1px solid #334155; border-radius:10px; margin-bottom:28px; overflow:hidden; }
+  .donut-widget { display:flex; align-items:center; gap:18px; flex:1; min-width:220px; padding:22px 24px; }
+  .donut-widget + .donut-widget { border-left:1px solid #334155; }
+  .donut-wrap { position:relative; flex-shrink:0; }
+  .donut-center { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; pointer-events:none; }
+  .donut-center-val { font-size:18px; font-weight:700; color:#e2e8f0; line-height:1; }
+  .donut-center-lbl { font-size:10px; color:#64748b; text-transform:uppercase; letter-spacing:.04em; margin-top:3px; }
+  .donut-info { display:flex; flex-direction:column; gap:2px; min-width:0; }
+  .donut-legend-title { font-size:11px; font-weight:600; color:#94a3b8; margin-bottom:6px; text-transform:uppercase; letter-spacing:.04em; }
+  .donut-legend-row { display:flex; align-items:center; gap:6px; font-size:11px; padding:2px 0; }
+  .donut-legend-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .donut-legend-name { color:#cbd5e1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100px; }
+  .donut-legend-val { margin-left:auto; color:#64748b; white-space:nowrap; padding-left:6px; }
+  .donut-legend-pct { min-width:34px; text-align:right; color:#94a3b8; }
+
+  /* ── Footer ── */
+  .footer { text-align: center; padding: 20px; color: #ffffff; font-size: 11px; border-top: 1px solid #1e2d42; }
+
+  @media (max-width: 1100px) { .dep-grid { grid-template-columns: 1fr; } }
+  @media (max-width: 900px) {
+    .top-header { flex-direction: column; gap: 12px; align-items: flex-start; }
+    .nav { padding: 0 16px; overflow-x: auto; }
+    .tab-pane { padding: 20px 16px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="tt"></div>
+<div class="page">
+
+  <div class="top-header">
+    <div>
+      <h1>Oracle GoldenGate</h1>
+      <div class="subtitle">Informe Diario de Estado</div>
+    </div>
+    <div class="date-pill">📅 14/09/2026 11:47</div>
+  </div>
+
+  <nav class="nav">
+    <div class="nav-tab active"  onclick="showTab(event,'resumen')">🖧 Infraestructura</div>
+    <div class="nav-tab"         onclick="showTab(event,'deployments')">🖥 Deployments</div>
+    <div class="nav-tab"         onclick="showTab(event,'procesos')">⚙ Procesos (<span id="count-procesos">15</span>)</div>
+    <div class="nav-tab"         onclick="showTab(event,'tablas')">📋 Tablas (<span id="count-tablas">16</span>)</div>
+    
+    <div class="nav-tab" onclick="showTab(event,'ini')">⏳ Carga Inicial (6)</div>
+    <div class="nav-tab" onclick="showTab(event,'consumo')">📊 Consumo (3)</div>
+  </nav>
+
+  <div class="grupo-bar">
+    <span class="grupo-bar-label">PROYECTO:</span>
+    <div class="toggle-group" id="grupoToggle">
+      <button class="toggle-btn active"              onclick="setGrupoGlobal(this,'')">Todos</button>
+      <button class="toggle-btn grupo-online"        onclick="setGrupoGlobal(this,'Online')">Online</button>
+      <button class="toggle-btn grupo-initialload"   onclick="setGrupoGlobal(this,'InitialLoad')">InitialLoad</button>
+    </div>
+    <span class="grupo-bar-label" style="margin-left:24px;">ENTORNO:</span>
+    <div class="toggle-group" id="envGlobalToggle">
+      <button class="toggle-btn active"       onclick="setEnvGlobal(this,'')">Todos</button>
+      <button class="toggle-btn badge-dev-btn" onclick="setEnvGlobal(this,'DEV')">DEV</button>
+      <button class="toggle-btn badge-pre-btn" onclick="setEnvGlobal(this,'PRE')">PRE</button>
+      <button class="toggle-btn badge-pro-btn" onclick="setEnvGlobal(this,'PRO')">PRO</button>
+    </div>
+  </div>
+
+  
+  <div id="tab-resumen" class="tab-pane active">
+
+    
+    
+
+    
+    <div class="kpi-grid">
+      
+        
+        
+          
+          
+          
+          
+          <div class="kpi-card kpi-green" data-grupo="Online">
+            <div class="kpi-val">4 / 4</div>
+            <div class="kpi-label">Hosts Online</div>
+            <div class="kpi-sub">Todos accesibles ✓</div>
+          </div>
+        
+      
+        
+        
+          
+          
+          
+          
+          <div class="kpi-card kpi-green" data-grupo="InitialLoad">
+            <div class="kpi-val">2 / 2</div>
+            <div class="kpi-label">Hosts InitialLoad</div>
+            <div class="kpi-sub">Todos accesibles ✓</div>
+          </div>
+        
+      
+    </div>
+
+    
+    <div class="section-header">Estado de Hosts</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Host</th>
+          <th>Deployment(s)</th>
+          <th>Entorno</th>
+          <th>Errores 24h</th>
+          <th>Estado</th>
+        </tr></thead>
+        <tbody>
+          
+          
+          
+          <tr data-grupo="Online" data-env="PRE">
+            <td><strong>ogg-cdc-odb-ora-e01-aws-pre.es.mapfre.net</strong></td>
+            <td class="mono small">
+              OGG_CDC_ODB_ORA_E01_AWS_PRE
+            </td>
+            <td>
+              
+                <span class="badge badge-pre">PRE</span> 
+              
+            </td>
+            <td>
+              
+              
+                <span class="text-muted tooltip-info" data-tooltip="Número de líneas de error en el fichero ggserr.log en las últimas 24 horas (o desde que ha rotado el fichero)">0</span>
+              
+            </td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+          </tr>
+          
+          
+          
+          <tr data-grupo="Online" data-env="PRE">
+            <td><strong>ogg-cdc-odb-daa-r01-aws-pre.es.mapfre.net</strong></td>
+            <td class="mono small">
+              OGG_CDC_ODB_DAA_R01_AWS_PRE
+            </td>
+            <td>
+              
+                <span class="badge badge-pre">PRE</span> 
+              
+            </td>
+            <td>
+              
+              
+                <span class="badge badge-abended tooltip-info" data-tooltip="Número de líneas de error en el fichero ggserr.log en las últimas 24 horas (o desde que ha rotado el fichero)">⚠ 3</span>
+              
+            </td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+          </tr>
+          
+          
+          
+          <tr data-grupo="InitialLoad" data-env="PRE">
+            <td><strong>ogg-ini-odb-ora-e01-aws-pre.es.mapfre.net</strong></td>
+            <td class="mono small">
+              OGG_INI_ODB_ORA_E01_AWS_PRE
+            </td>
+            <td>
+              
+                <span class="badge badge-pre">PRE</span> 
+              
+            </td>
+            <td>
+              
+              
+                <span class="text-muted tooltip-info" data-tooltip="Número de líneas de error en el fichero ggserr.log en las últimas 24 horas (o desde que ha rotado el fichero)">0</span>
+              
+            </td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+          </tr>
+          
+          
+          
+          <tr data-grupo="InitialLoad" data-env="PRE">
+            <td><strong>ogg-ini-odb-daa-r01-aws-pre.es.mapfre.net</strong></td>
+            <td class="mono small">
+              OGG_INI_ODB_DAA_R01_AWS_PRE
+            </td>
+            <td>
+              
+                <span class="badge badge-pre">PRE</span> 
+              
+            </td>
+            <td>
+              
+              
+                <span class="text-muted tooltip-info" data-tooltip="Número de líneas de error en el fichero ggserr.log en las últimas 24 horas (o desde que ha rotado el fichero)">0</span>
+              
+            </td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+          </tr>
+          
+          
+          
+          <tr data-grupo="Online" data-env="PRO">
+            <td><strong>ogg-dr-odb-ora-e01-aws-pro.es.mapfre.net</strong></td>
+            <td class="mono small">
+              OGG_DR_ODB_ORA_E01_AWS_PRO
+            </td>
+            <td>
+              
+                <span class="badge badge-pro">PRO</span> 
+              
+            </td>
+            <td>
+              
+              
+                <span class="badge badge-abended tooltip-info" data-tooltip="Número de líneas de error en el fichero ggserr.log en las últimas 24 horas (o desde que ha rotado el fichero)">⚠ 1</span>
+              
+            </td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+          </tr>
+          
+          
+          
+          <tr data-grupo="Online" data-env="PRO">
+            <td><strong>ogg-dr-odb-daa-r01-aws-pro.es.mapfre.net</strong></td>
+            <td class="mono small">
+              OGG_DR_ODB_DAA_R01_AWS_PRO
+            </td>
+            <td>
+              
+                <span class="badge badge-pro">PRO</span> 
+              
+            </td>
+            <td>
+              
+              
+                <span class="text-muted tooltip-info" data-tooltip="Número de líneas de error en el fichero ggserr.log en las últimas 24 horas (o desde que ha rotado el fichero)">0</span>
+              
+            </td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+          </tr>
+          
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  
+  <div id="tab-deployments" class="tab-pane">
+    <div class="section-header">Estado de Deployments</div>
+    <div class="dep-grid">
+      
+      
+      
+      
+      
+
+      <div class="dep-card" data-grupo="Online" data-env="PRE">
+        <div class="dep-top-band band-running"></div>
+        <div class="dep-header">
+          <div>
+            <div class="dep-title mono-title">OGG_CDC_ODB_ORA_E01_AWS_PRE</div>
+            <div class="dep-depname">ogg-cdc-odb-ora-e01-aws-pre.es.mapfre.net</div>
+            <div class="dep-role-badges">
+              <span class="badge badge-extractor">EXTRACTOR</span>
+              <span class="badge badge-pre">PRE</span>
+              
+            </div>
+          </div>
+          <span class="badge badge-running">OK</span>
+        </div>
+
+        
+        <div class="dep-services">
+          <span class="dep-svc-label">Servicios:</span>
+          
+            
+              
+              <span class="svc-item"><span class="dot dot-green"></span> adminsrvr</span>
+            
+              
+              <span class="svc-item"><span class="dot dot-green"></span> distsrvr</span>
+            
+              
+              <span class="svc-item"><span class="dot dot-green"></span> pmsrvr</span>
+            
+              
+              <span class="svc-item"><span class="dot dot-green"></span> recvsrvr</span>
+            
+              
+              <span class="svc-item"><span class="dot dot-green"></span> pluginsrvr</span>
+            
+          
+        </div>
+
+        
+        
+          
+          <div class="proc-group">
+            <div class="proc-group-header">
+              <span class="proc-tipo tooltip-tipo" data-tipo="EXTR_CDC">EXTR_CDC</span>
+              <span class="proc-pills">
+                <span class="badge badge-running">2 running</span> 
+                
+                
+                
+                
+              </span>
+            </div>
+            <div class="proc-names text-muted">
+              
+              
+                
+                  <span style="color:#6ee7b7">ECDC01</span>
+                    ·  
+                
+                  <span style="color:#6ee7b7">ECDC02</span>
+                  
+                
+              
+            </div>
+          </div>
+        
+          
+          <div class="proc-group">
+            <div class="proc-group-header">
+              <span class="proc-tipo tooltip-tipo" data-tipo="EXTR_INI">EXTR_INI</span>
+              <span class="proc-pills">
+                
+                
+                
+                
+                
+                  <span class="text-muted small">0 procesos</span>
+                
+              </span>
+            </div>
+            <div class="proc-names text-muted">
+              
+              
+                <span class="text-muted small">—</span>
+              
+            </div>
+          </div>
+        
+          
+          <div class="proc-group">
+            <div class="proc-group-header">
+              <span class="proc-tipo tooltip-tipo" data-tipo="DIST_PATH">DIST_PATH</span>
+              <span class="proc-pills">
+                <span class="badge badge-running">1 running</span> 
+                
+                
+                
+                
+              </span>
+            </div>
+            <div class="proc-names text-muted">
+              
+              
+                
+                  <span style="color:#6ee7b7">DP_PRE_01</span>
+                  
+                
+              
+            </div>
+          </div>
+        
+      </div>
+      
+      
+      
+      
+      
+
+      <div class="dep-card" data-grupo="Online" data-env="PRE">
+        <div class="dep-top-band band-stopped"></div>
+        <div class="dep-header">
+          <div>
+            <div class="dep-title mono-title">OGG_CDC_ODB_DAA_R01_AWS_PRE</div>
+            <div class="dep-depname">ogg-cdc-odb-daa-r01-aws-pre.es.mapfre.net</div>
+            <div class="dep-role-badges">
+              <span class="badge badge-replicator">REPLICATOR</span>
+              <span class="badge badge-pre">PRE</span>
+              
+                <span class="badge badge-abended tooltip-info"
+                      data-tooltip="Número de líneas de error en ggserr.log en las últimas 24h">⚠ 3 errores 24h</span>
+              
+            </div>
+          </div>
+          <span class="badge badge-stopped">WARNING</span>
+        </div>
+
+        
+        <div class="dep-services">
+          <span class="dep-svc-label">Servicios:</span>
+          
+            
+              
+              <span class="svc-item"><span class="dot dot-green"></span> adminsrvr</span>
+            
+              
+              <span class="svc-item"><span class="dot dot-amber"></span> distsrvr</span>
+            
+              
+              <span class="svc-item"><span class="dot dot-green"></span> pmsrvr</span>
+            
+              
+              <span class="svc-item"><span class="dot dot-green"></span> recvsrvr</span>
+            
+              
+              <span class="svc-item"><span class="dot dot-green"></span> pluginsrvr</span>
+            
+          
+        </div>
+
+        
+        
+          
+          <div class="proc-group">
+            <div class="proc-group-header">
+              <span class="proc-tipo tooltip-tipo" data-tipo="REPL_CDC">REPL_CDC</span>
+              <span class="proc-pills">
+                <span class="badge badge-running">1 running</span> 
+                
+                <span class="badge badge-abended">1 abended</span> 
+                
+                
+              </span>
+            </div>
+            <div class="proc-names text-muted">
+              
+              
+                
+                  <span style="color:#6ee7b7">RCDC01</span>
+                    ·  
+                
+                  <span style="color:#fca5a5">RCDC02</span>
+                  
+                
+              
+            </div>
+          </div>
+        
+          
+          <div class="proc-group">
+            <div class="proc-group-header">
+              <span class="proc-tipo tooltip-tipo" data-tipo="REPL_INI">REPL_INI</span>
+              <span class="proc-pills">
+                
+                
+                
+                
+                
+                  <span class="text-muted small">0 procesos</span>
+                
+              </span>
+            </div>
+            <div class="proc-names text-muted">
+              
+              
+                <span class="text-muted small">—</span>
+              
+            </div>
+          </div>
+        
+          
+          <div class="proc-group">
+            <div class="proc-group-header">
+              <span class="proc-tipo tooltip-tipo" data-tipo="RCVR_PATH">RCVR_PATH</span>
+              <span class="proc-pills">
+                <span class="badge badge-running">1 running</span> 
+                
+                
+                
+                
+              </span>
+            </div>
+            <div class="proc-names text-muted">
+              
+              
+                
+                  <span style="color:#6ee7b7">RP_PRE_01</span>
+                  
+                
+              
+            </div>
+          </div>
+        
+      </div>
+      
+      
+      
+      
+      
+
+      <div class="dep-card" data-grupo="Online" data-env="PRO">
+        <div class="dep-top-band band-running"></div>
+        <div class="dep-header">
+          <div>
+            <div class="dep-title mono-title">OGG_DR_ODB_ORA_E01_AWS_PRO</div>
+            <div class="dep-depname">ogg-dr-odb-ora-e01-aws-pro.es.mapfre.net</div>
+            <div class="dep-role-badges">
+              <span class="badge badge-extractor">EXTRACTOR</span>
+              <span class="badge badge-pro">PRO</span>
+              
+                <span class="badge badge-abended tooltip-info"
+                      data-tooltip="Número de líneas de error en ggserr.log en las últimas 24h">⚠ 1 errores 24h</span>
+              
+            </div>
+          </div>
+          <span class="badge badge-running">OK</span>
+        </div>
+
+        
+        <div class="dep-services">
+          <span class="dep-svc-label">Servicios:</span>
+          
+            
+              
+              <span class="svc-item"><span class="dot dot-green"></span> adminsrvr</span>
+            
+              
+              <span class="svc-item"><span class="dot dot-green"></span> distsrvr</span>
+            
+              
+              <span class="svc-item"><span class="dot dot-green"></span> pmsrvr</span>
+            
+              
+              <span class="svc-item"><span class="dot dot-green"></span> recvsrvr</span>
+            
+              
+              <span class="svc-item"><span class="dot dot-green"></span> pluginsrvr</span>
+            
+          
+        </div>
+
+        
+        
+          
+          <div class="proc-group">
+            <div class="proc-group-header">
+              <span class="proc-tipo tooltip-tipo" data-tipo="EXTR_CDC">EXTR_CDC</span>
+              <span class="proc-pills">
+                <span class="badge badge-running">1 running</span> 
+                
+                
+                
+                
+              </span>
+            </div>
+            <div class="proc-names text-muted">
+              
+              
+                
+                  <span style="color:#6ee7b7">ECDC01</span>
+                  
+                
+              
+            </div>
+          </div>
+        
+          
+          <div class="proc-group">
+            <div class="proc-group-header">
+              <span class="proc-tipo tooltip-tipo" data-tipo="EXTR_INI">EXTR_INI</span>
+              <span class="proc-pills">
+                
+                
+                
+                
+                
+                  <span class="text-muted small">0 procesos</span>
+                
+              </span>
+            </div>
+            <div class="proc-names text-muted">
+              
+              
+                <span class="text-muted small">—</span>
+              
+            </div>
+          </div>
+        
+          
+          <div class="proc-group">
+            <div class="proc-group-header">
+              <span class="proc-tipo tooltip-tipo" data-tipo="DIST_PATH">DIST_PATH</span>
+              <span class="proc-pills">
+                <span class="badge badge-running">1 running</span> 
+                
+                
+                
+                
+              </span>
+            </div>
+            <div class="proc-names text-muted">
+              
+              
+                
+                  <span style="color:#6ee7b7">DP_PRO_01</span>
+                  
+                
+              
+            </div>
+          </div>
+        
+      </div>
+      
+      
+      
+      
+      
+
+      <div class="dep-card" data-grupo="Online" data-env="PRO">
+        <div class="dep-top-band band-running"></div>
+        <div class="dep-header">
+          <div>
+            <div class="dep-title mono-title">OGG_DR_ODB_DAA_R01_AWS_PRO</div>
+            <div class="dep-depname">ogg-dr-odb-daa-r01-aws-pro.es.mapfre.net</div>
+            <div class="dep-role-badges">
+              <span class="badge badge-replicator">REPLICATOR</span>
+              <span class="badge badge-pro">PRO</span>
+              
+            </div>
+          </div>
+          <span class="badge badge-running">OK</span>
+        </div>
+
+        
+        <div class="dep-services">
+          <span class="dep-svc-label">Servicios:</span>
+          
+            
+              
+              <span class="svc-item"><span class="dot dot-green"></span> adminsrvr</span>
+            
+              
+              <span class="svc-item"><span class="dot dot-green"></span> recvsrvr</span>
+            
+              
+              <span class="svc-item"><span class="dot dot-green"></span> pmsrvr</span>
+            
+          
+        </div>
+
+        
+        
+          
+          <div class="proc-group">
+            <div class="proc-group-header">
+              <span class="proc-tipo tooltip-tipo" data-tipo="REPL_CDC">REPL_CDC</span>
+              <span class="proc-pills">
+                <span class="badge badge-running">2 running</span> 
+                
+                
+                
+                
+              </span>
+            </div>
+            <div class="proc-names text-muted">
+              
+              
+                
+                  <span style="color:#6ee7b7">RCDC01</span>
+                    ·  
+                
+                  <span style="color:#6ee7b7">RCDC02</span>
+                  
+                
+              
+            </div>
+          </div>
+        
+          
+          <div class="proc-group">
+            <div class="proc-group-header">
+              <span class="proc-tipo tooltip-tipo" data-tipo="REPL_INI">REPL_INI</span>
+              <span class="proc-pills">
+                
+                
+                
+                
+                
+                  <span class="text-muted small">0 procesos</span>
+                
+              </span>
+            </div>
+            <div class="proc-names text-muted">
+              
+              
+                <span class="text-muted small">—</span>
+              
+            </div>
+          </div>
+        
+          
+          <div class="proc-group">
+            <div class="proc-group-header">
+              <span class="proc-tipo tooltip-tipo" data-tipo="RCVR_PATH">RCVR_PATH</span>
+              <span class="proc-pills">
+                <span class="badge badge-running">1 running</span> 
+                
+                
+                
+                
+              </span>
+            </div>
+            <div class="proc-names text-muted">
+              
+              
+                
+                  <span style="color:#6ee7b7">RP_PRO_01</span>
+                  
+                
+              
+            </div>
+          </div>
+        
+      </div>
+      
+      
+      
+      
+      
+
+      <div class="dep-card" data-grupo="InitialLoad" data-env="PRE">
+        <div class="dep-top-band band-running"></div>
+        <div class="dep-header">
+          <div>
+            <div class="dep-title mono-title">OGG_INI_ODB_ORA_E01_AWS_PRE</div>
+            <div class="dep-depname">ogg-ini-odb-ora-e01-aws-pre.es.mapfre.net</div>
+            <div class="dep-role-badges">
+              <span class="badge badge-extractor">EXTRACTOR</span>
+              <span class="badge badge-pre">PRE</span>
+              
+            </div>
+          </div>
+          <span class="badge badge-running">OK</span>
+        </div>
+
+        
+        <div class="dep-services">
+          <span class="dep-svc-label">Servicios:</span>
+          
+            
+              
+              <span class="svc-item"><span class="dot dot-green"></span> adminsrvr</span>
+            
+              
+              <span class="svc-item"><span class="dot dot-green"></span> pmsrvr</span>
+            
+              
+              <span class="svc-item"><span class="dot dot-green"></span> distsrvr</span>
+            
+          
+        </div>
+
+        
+        
+          
+          <div class="proc-group">
+            <div class="proc-group-header">
+              <span class="proc-tipo tooltip-tipo" data-tipo="EXTR_CDC">EXTR_CDC</span>
+              <span class="proc-pills">
+                
+                
+                
+                
+                
+                  <span class="text-muted small">0 procesos</span>
+                
+              </span>
+            </div>
+            <div class="proc-names text-muted">
+              
+              
+                <span class="text-muted small">—</span>
+              
+            </div>
+          </div>
+        
+          
+          <div class="proc-group">
+            <div class="proc-group-header">
+              <span class="proc-tipo tooltip-tipo" data-tipo="EXTR_INI">EXTR_INI</span>
+              <span class="proc-pills">
+                <span class="badge badge-running">2 running</span> 
+                <span class="badge badge-stopped">1 stopped</span> 
+                
+                
+                
+              </span>
+            </div>
+            <div class="proc-names text-muted">
+              
+              
+                
+                  <span style="color:#6ee7b7">EINIT01</span>
+                    ·  
+                
+                  <span style="color:#6ee7b7">EINIT02</span>
+                    ·  
+                
+                  <span style="color:#fcd34d">EINIT03</span>
+                  
+                
+              
+            </div>
+          </div>
+        
+          
+          <div class="proc-group">
+            <div class="proc-group-header">
+              <span class="proc-tipo tooltip-tipo" data-tipo="DIST_PATH">DIST_PATH</span>
+              <span class="proc-pills">
+                
+                
+                
+                
+                
+                  <span class="text-muted small">0 procesos</span>
+                
+              </span>
+            </div>
+            <div class="proc-names text-muted">
+              
+              
+                <span class="text-muted small">—</span>
+              
+            </div>
+          </div>
+        
+      </div>
+      
+      
+      
+      
+      
+
+      <div class="dep-card" data-grupo="InitialLoad" data-env="PRE">
+        <div class="dep-top-band band-running"></div>
+        <div class="dep-header">
+          <div>
+            <div class="dep-title mono-title">OGG_INI_ODB_DAA_R01_AWS_PRE</div>
+            <div class="dep-depname">ogg-ini-odb-daa-r01-aws-pre.es.mapfre.net</div>
+            <div class="dep-role-badges">
+              <span class="badge badge-replicator">REPLICATOR</span>
+              <span class="badge badge-pre">PRE</span>
+              
+            </div>
+          </div>
+          <span class="badge badge-running">OK</span>
+        </div>
+
+        
+        <div class="dep-services">
+          <span class="dep-svc-label">Servicios:</span>
+          
+            
+              
+              <span class="svc-item"><span class="dot dot-green"></span> adminsrvr</span>
+            
+              
+              <span class="svc-item"><span class="dot dot-green"></span> recvsrvr</span>
+            
+          
+        </div>
+
+        
+        
+          
+          <div class="proc-group">
+            <div class="proc-group-header">
+              <span class="proc-tipo tooltip-tipo" data-tipo="REPL_CDC">REPL_CDC</span>
+              <span class="proc-pills">
+                
+                
+                
+                
+                
+                  <span class="text-muted small">0 procesos</span>
+                
+              </span>
+            </div>
+            <div class="proc-names text-muted">
+              
+              
+                <span class="text-muted small">—</span>
+              
+            </div>
+          </div>
+        
+          
+          <div class="proc-group">
+            <div class="proc-group-header">
+              <span class="proc-tipo tooltip-tipo" data-tipo="REPL_INI">REPL_INI</span>
+              <span class="proc-pills">
+                
+                <span class="badge badge-stopped">1 stopped</span> 
+                
+                
+                
+              </span>
+            </div>
+            <div class="proc-names text-muted">
+              
+              
+                
+                  <span style="color:#fcd34d">RINIT03</span>
+                  
+                
+              
+            </div>
+          </div>
+        
+          
+          <div class="proc-group">
+            <div class="proc-group-header">
+              <span class="proc-tipo tooltip-tipo" data-tipo="RCVR_PATH">RCVR_PATH</span>
+              <span class="proc-pills">
+                
+                
+                
+                
+                
+                  <span class="text-muted small">0 procesos</span>
+                
+              </span>
+            </div>
+            <div class="proc-names text-muted">
+              
+              
+                <span class="text-muted small">—</span>
+              
+            </div>
+          </div>
+        
+      </div>
+      
+    </div>
+  </div>
+
+  
+  <div id="tab-procesos" class="tab-pane">
+    
+    
+    
+    
+    
+    
+
+    <div class="section-header">Todos los Procesos
+      <span class="section-meta">15 procesos · 12 running · 3 con error</span>
+    </div>
+    <div class="filter-bar">
+      <input type="text" id="procsText" placeholder="Filtrar por nombre, deployment..."
+             oninput="applyFilters('procsTable','procs')">
+      <select id="procsEnv" onchange="applyFilters('procsTable','procs')">
+        <option value="">Todos los entornos</option>
+        <option value="PRE">PRE</option><option value="PRO">PRO</option>
+      </select>
+      <select id="procsDep" onchange="applyFilters('procsTable','procs')">
+        <option value="">Todos los deployments</option>
+        <option value="OGG_CDC_ODB_DAA_R01_AWS_PRE">OGG_CDC_ODB_DAA_R01_AWS_PRE</option><option value="OGG_CDC_ODB_ORA_E01_AWS_PRE">OGG_CDC_ODB_ORA_E01_AWS_PRE</option><option value="OGG_DR_ODB_DAA_R01_AWS_PRO">OGG_DR_ODB_DAA_R01_AWS_PRO</option><option value="OGG_DR_ODB_ORA_E01_AWS_PRO">OGG_DR_ODB_ORA_E01_AWS_PRO</option><option value="OGG_INI_ODB_DAA_R01_AWS_PRE">OGG_INI_ODB_DAA_R01_AWS_PRE</option><option value="OGG_INI_ODB_ORA_E01_AWS_PRE">OGG_INI_ODB_ORA_E01_AWS_PRE</option>
+      </select>
+      <select id="procsTipo" onchange="applyFilters('procsTable','procs')">
+        <option value="">Todos los tipos</option>
+        <option value="DIST_PATH">DIST_PATH</option><option value="EXTR_CDC">EXTR_CDC</option><option value="EXTR_INI">EXTR_INI</option><option value="RCVR_PATH">RCVR_PATH</option><option value="REPL_CDC">REPL_CDC</option><option value="REPL_INI">REPL_INI</option>
+      </select>
+      <select id="procsEstado" onchange="applyFilters('procsTable','procs')">
+        <option value="">Todos los estados</option>
+        <option value="ABENDED">ABENDED</option><option value="RUNNING">RUNNING</option><option value="STOPPED">STOPPED</option>
+      </select>
+    </div>
+    <div class="table-wrap">
+      <table id="procsTable">
+        <thead><tr>
+          <th onclick="sortTable('procsTable',0)">Entorno<span class="sort-icon"></span></th>
+          <th onclick="sortTable('procsTable',1)">Deployment<span class="sort-icon"></span></th>
+          <th onclick="sortTable('procsTable',2)">Tipo<span class="sort-icon"></span></th>
+          <th onclick="sortTable('procsTable',3)">Proceso<span class="sort-icon"></span></th>
+          <th onclick="sortTable('procsTable',4)">Estado<span class="sort-icon"></span></th>
+          <th onclick="sortTable('procsTable',5)">Lag<span class="sort-icon"></span></th>
+          <th onclick="sortTable('procsTable',6)">Last Started<span class="sort-icon"></span></th>
+          <th onclick="sortTable('procsTable',7)">Tablas<span class="sort-icon"></span></th>
+          <th onclick="sortTable('procsTable',8)">Descripción<span class="sort-icon"></span></th>
+        </tr></thead>
+        <tbody>
+          
+          
+          <tr class="row-pre" data-env="PRE" data-grupo="Online"
+              data-tipo="EXTR_CDC" data-estado="RUNNING" data-dep="OGG_CDC_ODB_ORA_E01_AWS_PRE">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="mono small text-muted">OGG_CDC_ODB_ORA_E01_AWS_PRE</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="EXTR_CDC">EXTR_CDC</span></td>
+            <td><strong>ECDC01</strong></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="lag-amber">00:00:04</td>
+            <td class="text-muted small">
+              2026-09-14 08:00:00Z
+              
+            </td>
+            <td>
+              
+                4
+              
+            </td>
+            <td class="col-desc text-muted small" title="CDC Oracle → Kafka">CDC Oracle → Kafka</td>
+          </tr>
+          
+          
+          <tr class="row-pre" data-env="PRE" data-grupo="Online"
+              data-tipo="EXTR_CDC" data-estado="RUNNING" data-dep="OGG_CDC_ODB_ORA_E01_AWS_PRE">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="mono small text-muted">OGG_CDC_ODB_ORA_E01_AWS_PRE</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="EXTR_CDC">EXTR_CDC</span></td>
+            <td><strong>ECDC02</strong></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="lag-amber">00:00:07</td>
+            <td class="text-muted small">
+              2026-09-14 08:01:00Z
+              
+            </td>
+            <td>
+              
+                1
+              
+            </td>
+            <td class="col-desc text-muted small" title="CDC Oracle → Kafka (schema 2)">CDC Oracle → Kafka (schema 2)</td>
+          </tr>
+          
+          
+          <tr class="row-pre" data-env="PRE" data-grupo="Online"
+              data-tipo="DIST_PATH" data-estado="RUNNING" data-dep="OGG_CDC_ODB_ORA_E01_AWS_PRE">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="mono small text-muted">OGG_CDC_ODB_ORA_E01_AWS_PRE</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="DIST_PATH">DIST_PATH</span></td>
+            <td><strong>DP_PRE_01</strong></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="">—</td>
+            <td class="text-muted small">
+              —
+            </td>
+            <td>
+              
+                <span class="text-muted">—</span>
+              
+            </td>
+            <td class="col-desc text-muted small" title="—">—</td>
+          </tr>
+          
+          
+          <tr class="row-pre" data-env="PRE" data-grupo="Online"
+              data-tipo="REPL_CDC" data-estado="RUNNING" data-dep="OGG_CDC_ODB_DAA_R01_AWS_PRE">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="mono small text-muted">OGG_CDC_ODB_DAA_R01_AWS_PRE</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="REPL_CDC">REPL_CDC</span></td>
+            <td><strong>RCDC01</strong></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="lag-amber">00:01:15</td>
+            <td class="text-muted small">
+              2026-09-14 08:05:00Z
+              
+            </td>
+            <td>
+              
+                4
+              
+            </td>
+            <td class="col-desc text-muted small" title="Apply Oracle CDC">Apply Oracle CDC</td>
+          </tr>
+          
+          
+          <tr class="row-pre" data-env="PRE" data-grupo="Online"
+              data-tipo="REPL_CDC" data-estado="ABENDED" data-dep="OGG_CDC_ODB_DAA_R01_AWS_PRE">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="mono small text-muted">OGG_CDC_ODB_DAA_R01_AWS_PRE</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="REPL_CDC">REPL_CDC</span></td>
+            <td><strong>RCDC02</strong></td>
+            <td><span class="badge badge-abended">ABENDED</span></td>
+            <td class="text-muted">unknown</td>
+            <td class="text-muted small">
+              2026-09-13 22:00:00Z
+              
+            </td>
+            <td>
+              
+                3
+              
+            </td>
+            <td class="col-desc text-muted small" title="Apply Oracle CDC (schema 2)">Apply Oracle CDC (schema 2)</td>
+          </tr>
+          
+          
+          <tr class="row-pre" data-env="PRE" data-grupo="Online"
+              data-tipo="RCVR_PATH" data-estado="RUNNING" data-dep="OGG_CDC_ODB_DAA_R01_AWS_PRE">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="mono small text-muted">OGG_CDC_ODB_DAA_R01_AWS_PRE</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="RCVR_PATH">RCVR_PATH</span></td>
+            <td><strong>RP_PRE_01</strong></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="">—</td>
+            <td class="text-muted small">
+              —
+            </td>
+            <td>
+              
+                <span class="text-muted">—</span>
+              
+            </td>
+            <td class="col-desc text-muted small" title="—">—</td>
+          </tr>
+          
+          
+          <tr class="row-pre" data-env="PRE" data-grupo="InitialLoad"
+              data-tipo="EXTR_INI" data-estado="RUNNING" data-dep="OGG_INI_ODB_ORA_E01_AWS_PRE">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="mono small text-muted">OGG_INI_ODB_ORA_E01_AWS_PRE</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="EXTR_INI">EXTR_INI</span></td>
+            <td><strong>EINIT01</strong></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="text-muted">unknown</td>
+            <td class="text-muted small">
+              2026-09-14 06:00:00Z
+              
+            </td>
+            <td>
+              
+                1
+              
+            </td>
+            <td class="col-desc text-muted small" title="Extract-Initial_load-ACNPDB-00-DATAIA-PRE for table SCHEMA1.HISTORICO part 1/3 (created by cdc-controller date: 2026-09-14 06:00:00)">Extract-Initial_load-ACNPDB-00-DATAIA-PRE for table SCHEMA1.HISTORICO part 1/3 (created by cdc-controller date: 2026-09-14 06:00:00)</td>
+          </tr>
+          
+          
+          <tr class="row-pre" data-env="PRE" data-grupo="InitialLoad"
+              data-tipo="EXTR_INI" data-estado="RUNNING" data-dep="OGG_INI_ODB_ORA_E01_AWS_PRE">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="mono small text-muted">OGG_INI_ODB_ORA_E01_AWS_PRE</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="EXTR_INI">EXTR_INI</span></td>
+            <td><strong>EINIT02</strong></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="text-muted">unknown</td>
+            <td class="text-muted small">
+              2026-09-14 06:05:00Z
+              
+            </td>
+            <td>
+              
+                1
+              
+            </td>
+            <td class="col-desc text-muted small" title="Extract-Initial_load-ACNPDB-00-DATAIA-PRE for table SCHEMA1.HISTORICO part 2/3 (created by cdc-controller date: 2026-09-14 06:05:00)">Extract-Initial_load-ACNPDB-00-DATAIA-PRE for table SCHEMA1.HISTORICO part 2/3 (created by cdc-controller date: 2026-09-14 06:05:00)</td>
+          </tr>
+          
+          
+          <tr class="row-pre" data-env="PRE" data-grupo="InitialLoad"
+              data-tipo="EXTR_INI" data-estado="STOPPED" data-dep="OGG_INI_ODB_ORA_E01_AWS_PRE">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="mono small text-muted">OGG_INI_ODB_ORA_E01_AWS_PRE</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="EXTR_INI">EXTR_INI</span></td>
+            <td><strong>EINIT03</strong></td>
+            <td><span class="badge badge-stopped">STOPPED</span></td>
+            <td class="text-muted">unknown</td>
+            <td class="text-muted small">
+              2026-09-14 06:10:00Z
+              
+            </td>
+            <td>
+              
+                1
+              
+            </td>
+            <td class="col-desc text-muted small" title="Extract-Initial_load-ACNPDB-00-DATAIA-PRE for table SCHEMA1.HISTORICO part 3/3 (created by cdc-controller date: 2026-09-14 06:10:00)">Extract-Initial_load-ACNPDB-00-DATAIA-PRE for table SCHEMA1.HISTORICO part 3/3 (created by cdc-controller date: 2026-09-14 06:10:00)</td>
+          </tr>
+          
+          
+          <tr class="row-pre" data-env="PRE" data-grupo="InitialLoad"
+              data-tipo="REPL_INI" data-estado="STOPPED" data-dep="OGG_INI_ODB_DAA_R01_AWS_PRE">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="mono small text-muted">OGG_INI_ODB_DAA_R01_AWS_PRE</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="REPL_INI">REPL_INI</span></td>
+            <td><strong>RINIT03</strong></td>
+            <td><span class="badge badge-stopped">STOPPED</span></td>
+            <td class="text-muted">unknown</td>
+            <td class="text-muted small">
+              2026-09-14 07:00:00Z
+              
+            </td>
+            <td>
+              
+                1
+              
+            </td>
+            <td class="col-desc text-muted small" title="Replicat-Initial_load-ACNPDB-00-DATAIA-PRE for table SCHEMA1.HISTORICO part 3/3 (created by cdc-controller date: 2026-09-14 07:00:00)">Replicat-Initial_load-ACNPDB-00-DATAIA-PRE for table SCHEMA1.HISTORICO part 3/3 (created by cdc-controller date: 2026-09-14 07:00:00)</td>
+          </tr>
+          
+          
+          <tr class="row-pro" data-env="PRO" data-grupo="Online"
+              data-tipo="EXTR_CDC" data-estado="RUNNING" data-dep="OGG_DR_ODB_ORA_E01_AWS_PRO">
+            <td><span class="badge badge-pro">PRO</span></td>
+            <td class="mono small text-muted">OGG_DR_ODB_ORA_E01_AWS_PRO</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="EXTR_CDC">EXTR_CDC</span></td>
+            <td><strong>ECDC01</strong></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="lag-red">4d:02:15:33</td>
+            <td class="text-muted small">
+              2026-09-10 06:00:00Z
+              
+            </td>
+            <td>
+              
+                4
+              
+            </td>
+            <td class="col-desc text-muted small" title="CDC Oracle PRO">CDC Oracle PRO</td>
+          </tr>
+          
+          
+          <tr class="row-pro" data-env="PRO" data-grupo="Online"
+              data-tipo="DIST_PATH" data-estado="RUNNING" data-dep="OGG_DR_ODB_ORA_E01_AWS_PRO">
+            <td><span class="badge badge-pro">PRO</span></td>
+            <td class="mono small text-muted">OGG_DR_ODB_ORA_E01_AWS_PRO</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="DIST_PATH">DIST_PATH</span></td>
+            <td><strong>DP_PRO_01</strong></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="">—</td>
+            <td class="text-muted small">
+              —
+            </td>
+            <td>
+              
+                <span class="text-muted">—</span>
+              
+            </td>
+            <td class="col-desc text-muted small" title="—">—</td>
+          </tr>
+          
+          
+          <tr class="row-pro" data-env="PRO" data-grupo="Online"
+              data-tipo="REPL_CDC" data-estado="RUNNING" data-dep="OGG_DR_ODB_DAA_R01_AWS_PRO">
+            <td><span class="badge badge-pro">PRO</span></td>
+            <td class="mono small text-muted">OGG_DR_ODB_DAA_R01_AWS_PRO</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="REPL_CDC">REPL_CDC</span></td>
+            <td><strong>RCDC01</strong></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="lag-amber">00:00:08</td>
+            <td class="text-muted small">
+              2026-09-14 08:10:00Z
+              
+            </td>
+            <td>
+              
+                4
+              
+            </td>
+            <td class="col-desc text-muted small" title="Apply Oracle CDC PRO">Apply Oracle CDC PRO</td>
+          </tr>
+          
+          
+          <tr class="row-pro" data-env="PRO" data-grupo="Online"
+              data-tipo="REPL_CDC" data-estado="RUNNING" data-dep="OGG_DR_ODB_DAA_R01_AWS_PRO">
+            <td><span class="badge badge-pro">PRO</span></td>
+            <td class="mono small text-muted">OGG_DR_ODB_DAA_R01_AWS_PRO</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="REPL_CDC">REPL_CDC</span></td>
+            <td><strong>RCDC02</strong></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="lag-amber">00:00:05</td>
+            <td class="text-muted small">
+              2026-09-14 08:11:00Z
+              
+            </td>
+            <td>
+              
+                3
+              
+            </td>
+            <td class="col-desc text-muted small" title="Apply Oracle CDC PRO (schema 2)">Apply Oracle CDC PRO (schema 2)</td>
+          </tr>
+          
+          
+          <tr class="row-pro" data-env="PRO" data-grupo="Online"
+              data-tipo="RCVR_PATH" data-estado="RUNNING" data-dep="OGG_DR_ODB_DAA_R01_AWS_PRO">
+            <td><span class="badge badge-pro">PRO</span></td>
+            <td class="mono small text-muted">OGG_DR_ODB_DAA_R01_AWS_PRO</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="RCVR_PATH">RCVR_PATH</span></td>
+            <td><strong>RP_PRO_01</strong></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="">—</td>
+            <td class="text-muted small">
+              —
+            </td>
+            <td>
+              
+                <span class="text-muted">—</span>
+              
+            </td>
+            <td class="col-desc text-muted small" title="—">—</td>
+          </tr>
+          
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  
+  <div id="tab-tablas" class="tab-pane">
+    
+    
+    
+    
+    
+    
+    
+    
+
+    <div class="section-header">Tablas
+      <span class="section-meta">16 tablas</span>
+    </div>
+    <div class="filter-bar">
+      <input type="text" id="tablesText" placeholder="Filtrar por tabla..."
+             oninput="applyFilters('tablesTable','tables')">
+      <select id="tablesEnv" onchange="applyFilters('tablesTable','tables')">
+        <option value="">Todos los entornos</option>
+        <option value="PRE">PRE</option><option value="PRO">PRO</option>
+      </select>
+      <select id="tablesBbdd" onchange="applyFilters('tablesTable','tables')">
+        <option value="">Todas las BBDD</option>
+        <option value="ORACLE">ORACLE</option>
+      </select>
+      
+      <select id="tablesTipo" onchange="applyFilters('tablesTable','tables')">
+        <option value="">Todos los tipos</option>
+        <option value="EXTR_CDC">EXTR_CDC</option><option value="EXTR_INI">EXTR_INI</option><option value="REPL_CDC">REPL_CDC</option><option value="REPL_INI">REPL_INI</option>
+      </select>
+      <select id="tablesEstado" onchange="applyFilters('tablesTable','tables')">
+        <option value="">Todos los estados</option>
+        <option value="ABENDED">ABENDED</option><option value="RUNNING">RUNNING</option><option value="STOPPED">STOPPED</option>
+      </select>
+      
+      <select id="tablesTeam" onchange="applyFilters('tablesTable','tables')">
+        <option value="">Todos los equipos</option>
+        <option value="TeamDataOps">TeamDataOps</option><option value="TeamRisk">TeamRisk</option>
+      </select>
+      
+      
+      <select id="tablesCostcenter" onchange="applyFilters('tablesTable','tables')">
+        <option value="">Todos los CC</option>
+        <option value="CC001">CC001</option><option value="CC002">CC002</option>
+      </select>
+      
+      <div class="toggle-group" id="statsToggle">
+        <button class="toggle-btn active" data-mode="24h" onclick="setStatsMode('24h')">Hoy</button>
+        <button class="toggle-btn"        data-mode="tot" onclick="setStatsMode('tot')">Total (startup)</button>
+      </div>
+      <button class="btn-export" onclick="exportFilteredHTML()" title="Descarga un HTML con solo las filas visibles">📥 Exportar</button>
+    </div>
+    <div class="table-wrap">
+      <table id="tablesTable">
+        <thead><tr>
+          <th onclick="sortTable('tablesTable',0)">Entorno<span class="sort-icon"></span></th>
+          <th onclick="sortTable('tablesTable',1)">Motor<span class="sort-icon"></span></th>
+          <th onclick="sortTable('tablesTable',2)">BBDD<span class="sort-icon"></span></th>
+          <th onclick="sortTable('tablesTable',3)">Proceso<span class="sort-icon"></span></th>
+          <th onclick="sortTable('tablesTable',4)">Tipo<span class="sort-icon"></span></th>
+          <th onclick="sortTable('tablesTable',5)">Estado<span class="sort-icon"></span></th>
+          <th onclick="sortTable('tablesTable',6)">Tabla<span class="sort-icon"></span></th>
+          <th onclick="sortTable('tablesTable',7)" title="Tamaño en disco (DBA_SEGMENTS)">Size<span class="sort-icon"></span></th>
+          <th onclick="sortTable('tablesTable',8)" title="Número de filas estimado (DBA_TAB_STATISTICS)">Rows<span class="sort-icon"></span></th>
+          <th onclick="sortTable('tablesTable',9)" title="Fecha último ANALYZE (DBA_TAB_STATISTICS)">Analyzed<span class="sort-icon"></span></th>
+          <th id="th-ins" onclick="sortTable('tablesTable',10)">Inserts<span class="sort-icon"></span></th>
+          <th id="th-upd" onclick="sortTable('tablesTable',11)">Updates<span class="sort-icon"></span></th>
+          <th id="th-del" onclick="sortTable('tablesTable',12)">Deletes<span class="sort-icon"></span></th>
+          <th id="th-ups" onclick="sortTable('tablesTable',13)">Upserts<span class="sort-icon"></span></th>
+          <th id="th-dis" onclick="sortTable('tablesTable',14)">Discards<span class="sort-icon"></span></th>
+          <th onclick="sortTable('tablesTable',15)">Descripción<span class="sort-icon"></span></th>
+        </tr></thead>
+        <tbody>
+          <tr class="row-pre" data-env="PRE" data-grupo="Online"
+              data-tipo="EXTR_CDC" data-estado="RUNNING" data-proceso="ECDC01"
+              data-bbdd="ORACLE" data-dbengine="-"
+              data-team="" data-costcenter="">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="text-muted small">-</td>
+            <td><strong>ORACLE</strong></td>
+            <td class="text-muted">ECDC01</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="EXTR_CDC">EXTR_CDC</span></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="mono small">
+              <strong>SCHEMA1.CLIENTES</strong>
+            </td>
+            <td class="text-muted small">—</td>
+            <td class="text-muted small">—</td>
+            <td class="text-muted small">—</td>
+            <td class="text-teal" data-h24="1.5K" data-tot="1.5K"
+              data-cls24="text-teal" data-clstot="text-teal">1.5K</td>
+            <td class="text-purple" data-h24="830" data-tot="830"
+              data-cls24="text-purple" data-clstot="text-purple">830</td>
+            <td class="text-red" data-h24="45" data-tot="45"
+              data-cls24="text-red" data-clstot="text-red">45</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="col-desc text-muted small" title="">—</td>
+          </tr>
+          <tr class="row-pre" data-env="PRE" data-grupo="Online"
+              data-tipo="EXTR_CDC" data-estado="RUNNING" data-proceso="ECDC01"
+              data-bbdd="ORACLE" data-dbengine="-"
+              data-team="" data-costcenter="">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="text-muted small">-</td>
+            <td><strong>ORACLE</strong></td>
+            <td class="text-muted">ECDC01</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="EXTR_CDC">EXTR_CDC</span></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="mono small">
+              <strong>SCHEMA1.POLIZAS</strong>
+            </td>
+            <td class="text-muted small">—</td>
+            <td class="text-muted small">—</td>
+            <td class="text-muted small">—</td>
+            <td class="text-teal" data-h24="320" data-tot="320"
+              data-cls24="text-teal" data-clstot="text-teal">320</td>
+            <td class="text-purple" data-h24="150" data-tot="150"
+              data-cls24="text-purple" data-clstot="text-purple">150</td>
+            <td class="text-red" data-h24="8" data-tot="8"
+              data-cls24="text-red" data-clstot="text-red">8</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="col-desc text-muted small" title="">—</td>
+          </tr>
+          <tr class="row-pre" data-env="PRE" data-grupo="Online"
+              data-tipo="EXTR_CDC" data-estado="RUNNING" data-proceso="ECDC01"
+              data-bbdd="ORACLE" data-dbengine="-"
+              data-team="" data-costcenter="">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="text-muted small">-</td>
+            <td><strong>ORACLE</strong></td>
+            <td class="text-muted">ECDC01</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="EXTR_CDC">EXTR_CDC</span></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="mono small">
+              <strong>SCHEMA1.SINIESTROS</strong>
+            </td>
+            <td class="text-muted small">—</td>
+            <td class="text-muted small">—</td>
+            <td class="text-muted small">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-purple" data-h24="12" data-tot="12"
+              data-cls24="text-purple" data-clstot="text-purple">12</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="col-desc text-muted small" title="">—</td>
+          </tr>
+          <tr class="row-pre" data-env="PRE" data-grupo="Online"
+              data-tipo="EXTR_CDC" data-estado="RUNNING" data-proceso="ECDC02"
+              data-bbdd="ORACLE" data-dbengine="-"
+              data-team="" data-costcenter="">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="text-muted small">-</td>
+            <td><strong>ORACLE</strong></td>
+            <td class="text-muted">ECDC02</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="EXTR_CDC">EXTR_CDC</span></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="mono small">
+              <strong>SCHEMA2.PRODUCTOS</strong>
+            </td>
+            <td class="text-muted small">—</td>
+            <td class="text-muted small">—</td>
+            <td class="text-muted small">—</td>
+            <td class="text-teal" data-h24="88" data-tot="88"
+              data-cls24="text-teal" data-clstot="text-teal">88</td>
+            <td class="text-purple" data-h24="34" data-tot="34"
+              data-cls24="text-purple" data-clstot="text-purple">34</td>
+            <td class="text-red" data-h24="3" data-tot="3"
+              data-cls24="text-red" data-clstot="text-red">3</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-amber" data-h24="2" data-tot="2"
+              data-cls24="text-amber" data-clstot="text-amber">2</td>
+            <td class="col-desc text-muted small" title="">—</td>
+          </tr>
+          <tr class="row-pre" data-env="PRE" data-grupo="InitialLoad"
+              data-tipo="EXTR_INI" data-estado="RUNNING" data-proceso="EINIT01"
+              data-bbdd="ORACLE" data-dbengine="-"
+              data-team="" data-costcenter="">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="text-muted small">-</td>
+            <td><strong>ORACLE</strong></td>
+            <td class="text-muted">EINIT01</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="EXTR_INI">EXTR_INI</span></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="mono small">
+              <strong>SCHEMA1.HISTORICO</strong>
+            </td>
+            <td class="text-muted small">9.4 GB</td>
+            <td class="text-muted small">12.0M</td>
+            <td class="text-muted small">—</td>
+            <td class="text-muted" data-h24="—" data-tot="4.5M"
+              data-cls24="text-muted" data-clstot="text-teal">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="col-desc text-muted small" title="Extract-Initial_load-ACNPDB-00-DATAIA-PRE for table SCHEMA1.HISTORICO part 1/3 (created by cdc-controller date: 2026-09-14 06:00:00)">Extract-Initial_load-ACNPDB-00-DATAIA-PRE for table SCHEMA1.HISTORICO part 1/3 (created by cdc-controller date: 2026-09-14 06:00:00)</td>
+          </tr>
+          <tr class="row-pre" data-env="PRE" data-grupo="InitialLoad"
+              data-tipo="EXTR_INI" data-estado="RUNNING" data-proceso="EINIT02"
+              data-bbdd="ORACLE" data-dbengine="-"
+              data-team="" data-costcenter="">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="text-muted small">-</td>
+            <td><strong>ORACLE</strong></td>
+            <td class="text-muted">EINIT02</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="EXTR_INI">EXTR_INI</span></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="mono small">
+              <strong>SCHEMA1.HISTORICO</strong>
+            </td>
+            <td class="text-muted small">9.4 GB</td>
+            <td class="text-muted small">12.0M</td>
+            <td class="text-muted small">—</td>
+            <td class="text-muted" data-h24="—" data-tot="3.2M"
+              data-cls24="text-muted" data-clstot="text-teal">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="col-desc text-muted small" title="Extract-Initial_load-ACNPDB-00-DATAIA-PRE for table SCHEMA1.HISTORICO part 2/3 (created by cdc-controller date: 2026-09-14 06:05:00)">Extract-Initial_load-ACNPDB-00-DATAIA-PRE for table SCHEMA1.HISTORICO part 2/3 (created by cdc-controller date: 2026-09-14 06:05:00)</td>
+          </tr>
+          <tr class="row-pre" data-env="PRE" data-grupo="InitialLoad"
+              data-tipo="EXTR_INI" data-estado="STOPPED" data-proceso="EINIT03"
+              data-bbdd="ORACLE" data-dbengine="-"
+              data-team="" data-costcenter="">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="text-muted small">-</td>
+            <td><strong>ORACLE</strong></td>
+            <td class="text-muted">EINIT03</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="EXTR_INI">EXTR_INI</span></td>
+            <td><span class="badge badge-stopped">STOPPED</span></td>
+            <td class="mono small">
+              <strong>SCHEMA1.HISTORICO</strong>
+            </td>
+            <td class="text-muted small">9.4 GB</td>
+            <td class="text-muted small">12.0M</td>
+            <td class="text-muted small">—</td>
+            <td class="text-muted" data-h24="—" data-tot="12.0M"
+              data-cls24="text-muted" data-clstot="text-teal">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="col-desc text-muted small" title="Extract-Initial_load-ACNPDB-00-DATAIA-PRE for table SCHEMA1.HISTORICO part 3/3 (created by cdc-controller date: 2026-09-14 06:10:00)">Extract-Initial_load-ACNPDB-00-DATAIA-PRE for table SCHEMA1.HISTORICO part 3/3 (created by cdc-controller date: 2026-09-14 06:10:00)</td>
+          </tr>
+          <tr class="row-pre" data-env="PRE" data-grupo="Online"
+              data-tipo="REPL_CDC" data-estado="ABENDED" data-proceso="RCDC02"
+              data-bbdd="ORACLE" data-dbengine="-"
+              data-team="" data-costcenter="">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="text-muted small">-</td>
+            <td><strong>ORACLE</strong></td>
+            <td class="text-muted">RCDC02</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="REPL_CDC">REPL_CDC</span></td>
+            <td><span class="badge badge-abended">ABENDED</span></td>
+            <td class="mono small">
+              <strong>DAA.SINIESTROS</strong>
+            </td>
+            <td class="text-muted small">760 MB</td>
+            <td class="text-muted small">1.5M</td>
+            <td class="text-muted small">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="col-desc text-muted small" title="">—</td>
+          </tr>
+          <tr class="row-pre" data-env="PRE" data-grupo="Online"
+              data-tipo="REPL_CDC" data-estado="RUNNING" data-proceso="RCDC01"
+              data-bbdd="ORACLE" data-dbengine="-"
+              data-team="TeamDataOps" data-costcenter="CC001">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="text-muted small">-</td>
+            <td><strong>ORACLE</strong></td>
+            <td class="text-muted">RCDC01</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="REPL_CDC">REPL_CDC</span></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="mono small">
+              <strong>DAA.CLIENTES</strong>
+              <div style="margin-top:2px;display:flex;gap:4px;flex-wrap:wrap;"><span class="badge-tag" title="Equipo solicitante">TeamDataOps</span><span class="badge-tag badge-cc" title="Centro de coste">CC001</span></div>
+            </td>
+            <td class="text-muted small">2.0 GB</td>
+            <td class="text-muted small">4.2M</td>
+            <td class="text-muted small">—</td>
+            <td class="text-teal" data-h24="1.5K" data-tot="1.5K"
+              data-cls24="text-teal" data-clstot="text-teal">1.5K</td>
+            <td class="text-purple" data-h24="828" data-tot="828"
+              data-cls24="text-purple" data-clstot="text-purple">828</td>
+            <td class="text-red" data-h24="45" data-tot="45"
+              data-cls24="text-red" data-clstot="text-red">45</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="col-desc text-muted small" title="">—</td>
+          </tr>
+          <tr class="row-pre" data-env="PRE" data-grupo="Online"
+              data-tipo="REPL_CDC" data-estado="RUNNING" data-proceso="RCDC01"
+              data-bbdd="ORACLE" data-dbengine="-"
+              data-team="TeamRisk" data-costcenter="CC002">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="text-muted small">-</td>
+            <td><strong>ORACLE</strong></td>
+            <td class="text-muted">RCDC01</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="REPL_CDC">REPL_CDC</span></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="mono small">
+              <strong>DAA.POLIZAS</strong>
+              <div style="margin-top:2px;display:flex;gap:4px;flex-wrap:wrap;"><span class="badge-tag" title="Equipo solicitante">TeamRisk</span><span class="badge-tag badge-cc" title="Centro de coste">CC002</span></div>
+            </td>
+            <td class="text-muted small">512 MB</td>
+            <td class="text-muted small">980.0K</td>
+            <td class="text-muted small">—</td>
+            <td class="text-teal" data-h24="318" data-tot="318"
+              data-cls24="text-teal" data-clstot="text-teal">318</td>
+            <td class="text-purple" data-h24="149" data-tot="149"
+              data-cls24="text-purple" data-clstot="text-purple">149</td>
+            <td class="text-red" data-h24="8" data-tot="8"
+              data-cls24="text-red" data-clstot="text-red">8</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="col-desc text-muted small" title="">—</td>
+          </tr>
+          <tr class="row-pre" data-env="PRE" data-grupo="InitialLoad"
+              data-tipo="REPL_INI" data-estado="STOPPED" data-proceso="RINIT03"
+              data-bbdd="ORACLE" data-dbengine="-"
+              data-team="" data-costcenter="">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="text-muted small">-</td>
+            <td><strong>ORACLE</strong></td>
+            <td class="text-muted">RINIT03</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="REPL_INI">REPL_INI</span></td>
+            <td><span class="badge badge-stopped">STOPPED</span></td>
+            <td class="mono small">
+              <strong>SCHEMA1.HISTORICO</strong>
+            </td>
+            <td class="text-muted small">9.4 GB</td>
+            <td class="text-muted small">12.0M</td>
+            <td class="text-muted small">—</td>
+            <td class="text-muted" data-h24="—" data-tot="12.0M"
+              data-cls24="text-muted" data-clstot="text-teal">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="col-desc text-muted small" title="Replicat-Initial_load-ACNPDB-00-DATAIA-PRE for table SCHEMA1.HISTORICO part 3/3 (created by cdc-controller date: 2026-09-14 07:00:00)">Replicat-Initial_load-ACNPDB-00-DATAIA-PRE for table SCHEMA1.HISTORICO part 3/3 (created by cdc-controller date: 2026-09-14 07:00:00)</td>
+          </tr>
+          <tr class="row-pro" data-env="PRO" data-grupo="Online"
+              data-tipo="EXTR_CDC" data-estado="RUNNING" data-proceso="ECDC01"
+              data-bbdd="ORACLE" data-dbengine="-"
+              data-team="" data-costcenter="">
+            <td><span class="badge badge-pro">PRO</span></td>
+            <td class="text-muted small">-</td>
+            <td><strong>ORACLE</strong></td>
+            <td class="text-muted">ECDC01</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="EXTR_CDC">EXTR_CDC</span></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="mono small">
+              <strong>SCHEMA1.CLIENTES</strong>
+            </td>
+            <td class="text-muted small">—</td>
+            <td class="text-muted small">—</td>
+            <td class="text-muted small">—</td>
+            <td class="text-teal" data-h24="98.2K" data-tot="98.2K"
+              data-cls24="text-teal" data-clstot="text-teal">98.2K</td>
+            <td class="text-purple" data-h24="54.1K" data-tot="54.1K"
+              data-cls24="text-purple" data-clstot="text-purple">54.1K</td>
+            <td class="text-red" data-h24="3.2K" data-tot="3.2K"
+              data-cls24="text-red" data-clstot="text-red">3.2K</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="col-desc text-muted small" title="">—</td>
+          </tr>
+          <tr class="row-pro" data-env="PRO" data-grupo="Online"
+              data-tipo="REPL_CDC" data-estado="RUNNING" data-proceso="RCDC01"
+              data-bbdd="ORACLE" data-dbengine="-"
+              data-team="TeamDataOps" data-costcenter="CC001">
+            <td><span class="badge badge-pro">PRO</span></td>
+            <td class="text-muted small">-</td>
+            <td><strong>ORACLE</strong></td>
+            <td class="text-muted">RCDC01</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="REPL_CDC">REPL_CDC</span></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="mono small">
+              <strong>DAA.CLIENTES</strong>
+              <div style="margin-top:2px;display:flex;gap:4px;flex-wrap:wrap;"><span class="badge-tag" title="Equipo solicitante">TeamDataOps</span><span class="badge-tag badge-cc" title="Centro de coste">CC001</span></div>
+            </td>
+            <td class="text-muted small">4.0 GB</td>
+            <td class="text-muted small">42.0M</td>
+            <td class="text-muted small">—</td>
+            <td class="text-teal" data-h24="98.1K" data-tot="98.1K"
+              data-cls24="text-teal" data-clstot="text-teal">98.1K</td>
+            <td class="text-purple" data-h24="54.0K" data-tot="54.0K"
+              data-cls24="text-purple" data-clstot="text-purple">54.0K</td>
+            <td class="text-red" data-h24="3.2K" data-tot="3.2K"
+              data-cls24="text-red" data-clstot="text-red">3.2K</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="col-desc text-muted small" title="">—</td>
+          </tr>
+          <tr class="row-pro" data-env="PRO" data-grupo="Online"
+              data-tipo="REPL_CDC" data-estado="RUNNING" data-proceso="RCDC02"
+              data-bbdd="ORACLE" data-dbengine="-"
+              data-team="TeamRisk" data-costcenter="CC002">
+            <td><span class="badge badge-pro">PRO</span></td>
+            <td class="text-muted small">-</td>
+            <td><strong>ORACLE</strong></td>
+            <td class="text-muted">RCDC02</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="REPL_CDC">REPL_CDC</span></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="mono small">
+              <strong>DAA.CONTRATOS</strong>
+              <div style="margin-top:2px;display:flex;gap:4px;flex-wrap:wrap;"><span class="badge-tag" title="Equipo solicitante">TeamRisk</span><span class="badge-tag badge-cc" title="Centro de coste">CC002</span></div>
+            </td>
+            <td class="text-muted small">640 MB</td>
+            <td class="text-muted small">3.2M</td>
+            <td class="text-muted small">—</td>
+            <td class="text-teal" data-h24="5.5K" data-tot="5.5K"
+              data-cls24="text-teal" data-clstot="text-teal">5.5K</td>
+            <td class="text-purple" data-h24="2.1K" data-tot="2.1K"
+              data-cls24="text-purple" data-clstot="text-purple">2.1K</td>
+            <td class="text-red" data-h24="180" data-tot="180"
+              data-cls24="text-red" data-clstot="text-red">180</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="col-desc text-muted small" title="">—</td>
+          </tr>
+          <tr class="row-pro" data-env="PRO" data-grupo="Online"
+              data-tipo="REPL_CDC" data-estado="RUNNING" data-proceso="RCDC01"
+              data-bbdd="ORACLE" data-dbengine="-"
+              data-team="TeamRisk" data-costcenter="CC002">
+            <td><span class="badge badge-pro">PRO</span></td>
+            <td class="text-muted small">-</td>
+            <td><strong>ORACLE</strong></td>
+            <td class="text-muted">RCDC01</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="REPL_CDC">REPL_CDC</span></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="mono small">
+              <strong>DAA.POLIZAS</strong>
+              <div style="margin-top:2px;display:flex;gap:4px;flex-wrap:wrap;"><span class="badge-tag" title="Equipo solicitante">TeamRisk</span><span class="badge-tag badge-cc" title="Centro de coste">CC002</span></div>
+            </td>
+            <td class="text-muted small">1.0 GB</td>
+            <td class="text-muted small">9.8M</td>
+            <td class="text-muted small">—</td>
+            <td class="text-teal" data-h24="12.4K" data-tot="12.4K"
+              data-cls24="text-teal" data-clstot="text-teal">12.4K</td>
+            <td class="text-purple" data-h24="6.8K" data-tot="6.8K"
+              data-cls24="text-purple" data-clstot="text-purple">6.8K</td>
+            <td class="text-red" data-h24="420" data-tot="420"
+              data-cls24="text-red" data-clstot="text-red">420</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="col-desc text-muted small" title="">—</td>
+          </tr>
+          <tr class="row-pro" data-env="PRO" data-grupo="Online"
+              data-tipo="REPL_CDC" data-estado="RUNNING" data-proceso="RCDC02"
+              data-bbdd="ORACLE" data-dbengine="-"
+              data-team="" data-costcenter="">
+            <td><span class="badge badge-pro">PRO</span></td>
+            <td class="text-muted small">-</td>
+            <td><strong>ORACLE</strong></td>
+            <td class="text-muted">RCDC02</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="REPL_CDC">REPL_CDC</span></td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="mono small">
+              <strong>DAA.PRODUCTOS</strong>
+            </td>
+            <td class="text-muted small">128 MB</td>
+            <td class="text-muted small">450.0K</td>
+            <td class="text-muted small">—</td>
+            <td class="text-teal" data-h24="210" data-tot="210"
+              data-cls24="text-teal" data-clstot="text-teal">210</td>
+            <td class="text-purple" data-h24="90" data-tot="90"
+              data-cls24="text-purple" data-clstot="text-purple">90</td>
+            <td class="text-red" data-h24="5" data-tot="5"
+              data-cls24="text-red" data-clstot="text-red">5</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="text-muted" data-h24="—" data-tot="—"
+              data-cls24="text-muted" data-clstot="text-muted">—</td>
+            <td class="col-desc text-muted small" title="">—</td>
+          </tr>
+          
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  
+  
+  
+  <div id="tab-ini" class="tab-pane">
+    
+    <script>var _iniSummaries = {"": {"total_oracle_rows": 36000000, "total_extracted": 19700000, "total_replicated": 12000000, "in_trail": 7700000, "agg_extract_rate": 9.815575496023442, "agg_replicat_rate": null, "extract_eta_sec": 1660626.0128714384, "replicat_eta_sec": null, "total_eta_sec": null, "bottleneck": "extracción", "overall_progress_pct": 33.33333333333333, "overall_extract_pct": 54.72222222222223, "n_extr_running": 2, "n_extr_done": 1, "n_extr_total": 3, "n_repl_running": 0, "n_repl_done": 1, "n_repl_pending": 2, "n_repl_total": 3}, "PRE": {"total_oracle_rows": 36000000, "total_extracted": 19700000, "total_replicated": 12000000, "in_trail": 7700000, "agg_extract_rate": 9.815575496023442, "agg_replicat_rate": null, "extract_eta_sec": 1660626.0128714384, "replicat_eta_sec": null, "total_eta_sec": null, "bottleneck": "extracción", "overall_progress_pct": 33.33333333333333, "overall_extract_pct": 54.72222222222223, "n_extr_running": 2, "n_extr_done": 1, "n_extr_total": 3, "n_repl_running": 0, "n_repl_done": 1, "n_repl_pending": 2, "n_repl_total": 3}};</script>
+    <div id="ini-global-card" style="background:#111d2e;border:1px solid #1e3a5f;border-radius:8px;padding:20px 24px;margin-bottom:28px">
+
+      
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+        <span style="font-size:14px;font-weight:700;color:#e2e8f0;white-space:nowrap">Carga Inicial Global</span>
+        <div style="flex:1;background:#1e3a5f;border-radius:4px;height:10px;overflow:hidden">
+          <div style="background:linear-gradient(90deg,#0891b2,#06b6d4);height:100%;border-radius:4px;width:33.3%"></div>
+        </div>
+        <span style="font-size:14px;font-weight:700;color:#0891b2;white-space:nowrap">33.3% replicado</span>
+        
+        <span class="badge" style="background:#1e3a5f;color:#94a3b8;font-size:10px">bottleneck: extracción</span>
+        
+      </div>
+
+      
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+        
+        <div style="background:#162032;border-radius:6px;padding:14px 16px;border-left:3px solid #0891b2">
+          <div style="font-size:11px;font-weight:700;color:#0891b2;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">⛏ Extracción</div>
+          <div style="font-size:22px;font-weight:700;color:#e2e8f0">19.7M</div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:8px">/ 36.0M filas estimadas Oracle
+            &nbsp;·&nbsp;<span style="color:#0891b2">54.7%</span>
+          </div>
+          <div class="small text-muted">
+            
+              Rate: <span style="color:#e2e8f0">588 rows/min</span>
+            
+            &nbsp;·&nbsp;
+            ETA: ~19d 5h
+                 
+          </div>
+          <div style="margin-top:8px;font-size:11px;color:#64748b">
+            2 running · 1 done · 3 total
+          </div>
+        </div>
+
+        
+        <div style="background:#162032;border-radius:6px;padding:14px 16px;border-left:3px solid #7c3aed">
+          <div style="font-size:11px;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">📥 Replicación</div>
+          <div style="font-size:22px;font-weight:700;color:#e2e8f0">12.0M</div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:8px">/ 36.0M filas estimadas Oracle
+            &nbsp;·&nbsp;<span style="color:#7c3aed">33.3%</span>
+          </div>
+          <div class="small text-muted">
+            
+              Rate: <span class="text-muted">—</span>
+            
+            &nbsp;·&nbsp;
+            ETA: <span class="text-muted">pendiente de inicio</span>
+          </div>
+          <div style="margin-top:8px;font-size:11px;color:#64748b">
+            0 running
+             · <span style="color:#7dd3fc">2 pending</span>
+            · 1 done · 3 total
+            
+            · <span style="color:#d97706">7.7M en trail</span>
+            
+          </div>
+        </div>
+
+      </div>
+
+      
+      
+
+    </div>
+    
+
+    
+    
+    <div class="section-header">⛏ Extracts de Carga Inicial
+      <span class="section-meta">(3 procesos)</span>
+    </div>
+    <div class="table-wrap" style="margin-bottom:32px">
+      <table>
+        <thead><tr>
+          <th>Entorno</th>
+          <th>Deployment</th>
+          <th>Proceso</th>
+          <th>Estado</th>
+          <th>Iniciado</th>
+          <th>Transcurrido</th>
+          <th>Progreso</th>
+          <th>Velocidad</th>
+          <th>ETA</th>
+          <th>Filas est/aplicadas</th>
+          <th>Tabla</th>
+        </tr></thead>
+        <tbody>
+          
+          <tr data-env="PRE" data-grupo="InitialLoad">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="mono small">OGG_INI_ODB_ORA_E01_AWS_PRE</td>
+            <td class="mono">EINIT01</td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="small text-muted">2026-09-14 06:00</td>
+            <td class="small">23d 5h</td>
+            <td>
+        <div style="display:flex;align-items:center;gap:6px;min-width:140px">
+          <div class="ini-progress-wrap" style="flex:1">
+            <div class="ini-progress-fill" style="width:37.5%"></div>
+          </div>
+          <span class="small" style="white-space:nowrap">37.5%</span>
+        </div>
+      </td>
+            <td class="small">134 rows/min</td>
+            <td class="small">~38d 17h
+      </td>
+            <td class="small">4.5M / 12.0M</td>
+            <td>
+        <span class="mono small">SCHEMA1.HISTORICO part 1/3</span></td>
+          </tr>
+          
+          <tr data-env="PRE" data-grupo="InitialLoad">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="mono small">OGG_INI_ODB_ORA_E01_AWS_PRE</td>
+            <td class="mono">EINIT02</td>
+            <td><span class="badge badge-running">RUNNING</span></td>
+            <td class="small text-muted">2026-09-14 06:05</td>
+            <td class="small">23d 5h</td>
+            <td>
+        <div style="display:flex;align-items:center;gap:6px;min-width:140px">
+          <div class="ini-progress-wrap" style="flex:1">
+            <div class="ini-progress-fill" style="width:26.7%"></div>
+          </div>
+          <span class="small" style="white-space:nowrap">26.7%</span>
+        </div>
+      </td>
+            <td class="small">95 rows/min</td>
+            <td class="small">~63d 21h
+      </td>
+            <td class="small">3.2M / 12.0M</td>
+            <td>
+        <span class="mono small">SCHEMA1.HISTORICO part 2/3</span></td>
+          </tr>
+          
+          <tr data-env="PRE" data-grupo="InitialLoad">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="mono small">OGG_INI_ODB_ORA_E01_AWS_PRE</td>
+            <td class="mono">EINIT03</td>
+            <td><span class="badge badge-stopped">STOPPED</span></td>
+            <td class="small text-muted">2026-09-14 06:10</td>
+            <td class="small">23d 5h</td>
+            <td>
+        <div style="display:flex;align-items:center;gap:6px;min-width:140px">
+          <div class="ini-progress-wrap" style="flex:1">
+            <div class="ini-progress-fill" style="width:100.0%"></div>
+          </div>
+          <span class="small" style="white-space:nowrap">100.0%</span>
+        </div>
+      </td>
+            <td class="small">358 rows/min</td>
+            <td class="small"><span style="color:#6ee7b7">Completado ✓</span>
+      </td>
+            <td class="small">12.0M / 12.0M</td>
+            <td>
+        <span class="mono small">SCHEMA1.HISTORICO part 3/3</span></td>
+          </tr>
+          
+        </tbody>
+      </table>
+    </div>
+    
+
+    
+    
+    <div class="section-header">📥 Replicats de Carga Inicial
+      <span class="section-meta">(3 procesos)</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Entorno</th>
+          <th>Deployment</th>
+          <th>Proceso</th>
+          <th>Estado</th>
+          <th>Iniciado</th>
+          <th>Transcurrido</th>
+          <th>Progreso</th>
+          <th>Velocidad</th>
+          <th>ETA</th>
+          <th>Filas ext/aplicadas</th>
+          <th>Tabla</th>
+          <th>Ref. Extract</th>
+        </tr></thead>
+        <tbody>
+          
+          <tr data-env="PRE" data-grupo="InitialLoad">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="mono small">OGG_INI_ODB_ORA_E01_AWS_PRE</td>
+            <td class="mono">RINIT01</td>
+            <td><span class="badge badge-pending">PENDING</span></td>
+            <td class="small text-muted">—</td>
+            <td class="small">—</td>
+            <td>
+              
+                <span class="text-muted small">en espera</span>
+              
+            </td>
+            <td class="small">
+              
+                <span class="text-muted">—</span>
+              
+            </td>
+            <td class="small">
+              
+                
+                  <span class="text-muted">—</span>
+                
+              
+            </td>
+            <td class="small">
+              
+                <span class="text-muted">0</span>
+                
+                  <span class="text-muted small"> · </span>
+                  <span style="color:#d97706" title="Filas extraídas en trail, listas para replicar">4.5M en trail</span>
+                
+              
+            </td>
+            <td>
+        <span class="mono small">SCHEMA1.HISTORICO part 1/3</span></td>
+            <td class="small">
+              
+              
+              <span class="mono" style="color:#7dd3fc">EINIT01</span>
+              
+            </td>
+          </tr>
+          
+          <tr data-env="PRE" data-grupo="InitialLoad">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="mono small">OGG_INI_ODB_ORA_E01_AWS_PRE</td>
+            <td class="mono">RINIT02</td>
+            <td><span class="badge badge-pending">PENDING</span></td>
+            <td class="small text-muted">—</td>
+            <td class="small">—</td>
+            <td>
+              
+                <span class="text-muted small">en espera</span>
+              
+            </td>
+            <td class="small">
+              
+                <span class="text-muted">—</span>
+              
+            </td>
+            <td class="small">
+              
+                
+                  <span class="text-muted">—</span>
+                
+              
+            </td>
+            <td class="small">
+              
+                <span class="text-muted">0</span>
+                
+                  <span class="text-muted small"> · </span>
+                  <span style="color:#d97706" title="Filas extraídas en trail, listas para replicar">3.2M en trail</span>
+                
+              
+            </td>
+            <td>
+        <span class="mono small">SCHEMA1.HISTORICO part 2/3</span></td>
+            <td class="small">
+              
+              
+              <span class="mono" style="color:#7dd3fc">EINIT02</span>
+              
+            </td>
+          </tr>
+          
+          <tr data-env="PRE" data-grupo="InitialLoad">
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td class="mono small">OGG_INI_ODB_DAA_R01_AWS_PRE</td>
+            <td class="mono">RINIT03</td>
+            <td><span class="badge badge-stopped">STOPPED</span></td>
+            <td class="small text-muted">2026-09-14 07:00</td>
+            <td class="small">23d 4h</td>
+            <td>
+              
+                
+        <div style="display:flex;align-items:center;gap:6px;min-width:140px">
+          <div class="ini-progress-wrap" style="flex:1">
+            <div class="ini-progress-fill" style="width:100.0%"></div>
+          </div>
+          <span class="small" style="white-space:nowrap">100.0%</span>
+        </div>
+      
+              
+            </td>
+            <td class="small">
+              
+                359 rows/min
+              
+            </td>
+            <td class="small">
+              
+                <span style="color:#6ee7b7">Completado ✓</span>
+      
+              
+            </td>
+            <td class="small">
+              
+                12.0M / 12.0M
+              
+            </td>
+            <td>
+        <span class="mono small">SCHEMA1.HISTORICO part 3/3</span></td>
+            <td class="small">
+              
+              
+              <span class="mono" style="color:#7dd3fc">EINIT03</span>
+              
+            </td>
+          </tr>
+          
+        </tbody>
+      </table>
+    </div>
+    
+
+  </div>
+  
+
+  
+  
+  <div id="tab-consumo" class="tab-pane">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:20px">
+      <div class="toggle-group" id="consumoStatsToggle">
+        <button class="toggle-btn active" data-cmode="24h" onclick="setConsumoMode('24h')">Hoy</button>
+        <button class="toggle-btn"        data-cmode="tot" onclick="setConsumoMode('tot')">Total (startup)</button>
+      </div>
+    </div>
+
+    <div class="kpi-grid" style="margin-bottom:28px">
+      
+      <div class="kpi-card kpi-green">
+        <div class="kpi-val" style="font-size:22px">TeamDataOps</div>
+        <div class="kpi-label">Mayor consumo DML (hoy)</div>
+        <div class="kpi-sub">157.7K ops · 84.8% del total</div>
+      </div>
+      
+      
+      <div class="kpi-card kpi-amber">
+        <div class="kpi-val" style="font-size:22px">TeamRisk</div>
+        <div class="kpi-label">Mayor uso de infra (replicats)</div>
+        <div class="kpi-sub">2 replicats · 40.0% del total</div>
+      </div>
+      
+      
+      <div class="kpi-card" style="border-color:#7c3aed">
+        <div class="kpi-val" style="font-size:22px;color:#7c3aed">TeamRisk</div>
+        <div class="kpi-label">Mayor número de tablas</div>
+        <div class="kpi-sub">2 tablas · 33.3% del total</div>
+      </div>
+      
+      
+      <div class="kpi-card" style="border-color:#475569">
+        <div class="kpi-val" style="font-size:28px;color:#475569">3</div>
+        <div class="kpi-label">Tablas sin equipo asignado</div>
+        <div class="kpi-sub">50.0% sin atribución · revisar TAGS en PRM</div>
+      </div>
+      
+    </div>
+
+    
+    <script>
+    var _consumoTeams = [
+      
+      { team: "TeamDataOps", dml24: 157728, dmlTot: 157728, size_mb: 6144, procs: 1, unattr: false },
+      
+      { team: "TeamRisk", dml24: 27875, dmlTot: 27875, size_mb: 2176, procs: 2, unattr: false },
+      
+      { team: "Sin equipo", dml24: 305, dmlTot: 12000305, size_mb: 10488, procs: 2, unattr: true }
+      
+    ];
+    var _consumoTeamEnvs = [
+      
+      { team: "TeamDataOps", env: "PRE", unattr: false, dml24: 2388, dmlTot: 2388, size_mb: 2048, procs: 1 },
+      
+      { team: "TeamDataOps", env: "PRO", unattr: false, dml24: 155340, dmlTot: 155340, size_mb: 4096, procs: 1 },
+      
+      { team: "TeamRisk", env: "PRE", unattr: false, dml24: 475, dmlTot: 475, size_mb: 512, procs: 1 },
+      
+      { team: "TeamRisk", env: "PRO", unattr: false, dml24: 27400, dmlTot: 27400, size_mb: 1664, procs: 2 },
+      
+      { team: "Sin equipo", env: "PRE", unattr: true, dml24: 0, dmlTot: 12000000, size_mb: 10360, procs: 2 },
+      
+      { team: "Sin equipo", env: "PRO", unattr: true, dml24: 305, dmlTot: 305, size_mb: 128, procs: 1 }
+      
+    ];
+    </script>
+
+    
+    <div class="consumo-charts-row">
+      <div class="donut-widget">
+        <div class="donut-wrap">
+          <svg id="svg-dml" width="120" height="120"></svg>
+          <div class="donut-center">
+            <div class="donut-center-val" id="svg-dml-cval">—</div>
+            <div class="donut-center-lbl">ops DML</div>
+          </div>
+        </div>
+        <div class="donut-info">
+          <div class="donut-legend-title" id="donut-dml-title">Distribución DML · Hoy</div>
+          <div id="svg-dml-legend"></div>
+        </div>
+      </div>
+      <div class="donut-widget">
+        <div class="donut-wrap">
+          <svg id="svg-size" width="120" height="120"></svg>
+          <div class="donut-center">
+            <div class="donut-center-val" id="svg-size-cval">—</div>
+            <div class="donut-center-lbl">tablas</div>
+          </div>
+        </div>
+        <div class="donut-info">
+          <div class="donut-legend-title">Tamaño tablas</div>
+          <div id="svg-size-legend"></div>
+        </div>
+      </div>
+      <div class="donut-widget">
+        <div class="donut-wrap">
+          <svg id="svg-infra" width="120" height="120"></svg>
+          <div class="donut-center">
+            <div class="donut-center-val" id="svg-infra-cval">—</div>
+            <div class="donut-center-lbl">replicats</div>
+          </div>
+        </div>
+        <div class="donut-info">
+          <div class="donut-legend-title">Infra (replicats)</div>
+          <div id="svg-infra-legend"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-header">Consumo por Equipo
+      <span class="section-meta">6 tablas · 5 replicats en seguimiento</span>
+    </div>
+
+    
+    <div class="table-wrap" style="margin-bottom:32px">
+      <table id="consumoTable">
+        <thead><tr>
+          <th>Equipo</th>
+          <th>Cost Center</th>
+          <th>Entornos</th>
+          <th title="Tablas únicas en replicats">Tablas</th>
+          <th title="% tablas sobre el total seguido">% Tablas</th>
+          <th>DML</th>
+          <th title="% DML sobre el total seguido">% DML</th>
+          <th title="Replicats con al menos una tabla del equipo">Replicats</th>
+          <th title="% replicats sobre el total">% Infra</th>
+          <th title="Suma tamaño Oracle (DBA_SEGMENTS) de las tablas del equipo">Tamaño tablas</th>
+        </tr></thead>
+        <tbody>
+          
+          <tr class="">
+            <td><strong>TeamDataOps</strong></td>
+            <td class="text-muted small">CC001</td>
+            <td><span class="badge badge-pre">PRE</span> <span class="badge badge-pro">PRO</span> </td>
+            <td>1</td>
+            <td><span class="consumo-bar-wrap" style="width:80px">
+        <span class="consumo-bar-fill fill-purple" style="width:16.7%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">16.7%</span></td>
+            <td>
+              <span class="dml-24">157.7K</span>
+              <span class="dml-tot" style="display:none">157.7K</span>
+            </td>
+            <td>
+              <span class="dml-24"><span class="consumo-bar-wrap" style="width:80px">
+        <span class="consumo-bar-fill fill-teal" style="width:84.8%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">84.8%</span></span>
+              <span class="dml-tot" style="display:none"><span class="consumo-bar-wrap" style="width:80px">
+        <span class="consumo-bar-fill fill-teal" style="width:1.3%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">1.3%</span></span>
+            </td>
+            <td>1</td>
+            <td><span class="consumo-bar-wrap" style="width:80px">
+        <span class="consumo-bar-fill fill-amber" style="width:20.0%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">20.0%</span></td>
+            <td class="text-muted small">6.0 GB</td>
+          </tr>
+          
+          <tr class="">
+            <td><strong>TeamRisk</strong></td>
+            <td class="text-muted small">CC002</td>
+            <td><span class="badge badge-pre">PRE</span> <span class="badge badge-pro">PRO</span> </td>
+            <td>2</td>
+            <td><span class="consumo-bar-wrap" style="width:80px">
+        <span class="consumo-bar-fill fill-purple" style="width:33.3%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">33.3%</span></td>
+            <td>
+              <span class="dml-24">27.9K</span>
+              <span class="dml-tot" style="display:none">27.9K</span>
+            </td>
+            <td>
+              <span class="dml-24"><span class="consumo-bar-wrap" style="width:80px">
+        <span class="consumo-bar-fill fill-teal" style="width:15.0%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">15.0%</span></span>
+              <span class="dml-tot" style="display:none"><span class="consumo-bar-wrap" style="width:80px">
+        <span class="consumo-bar-fill fill-teal" style="width:0.2%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">0.2%</span></span>
+            </td>
+            <td>2</td>
+            <td><span class="consumo-bar-wrap" style="width:80px">
+        <span class="consumo-bar-fill fill-amber" style="width:40.0%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">40.0%</span></td>
+            <td class="text-muted small">2.1 GB</td>
+          </tr>
+          
+          <tr class="team-unattr">
+            <td><strong>Sin equipo</strong></td>
+            <td class="text-muted small">—</td>
+            <td><span class="badge badge-pre">PRE</span> <span class="badge badge-pro">PRO</span> </td>
+            <td>3</td>
+            <td><span class="consumo-bar-wrap" style="width:80px">
+        <span class="consumo-bar-fill fill-purple" style="width:50.0%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">50.0%</span></td>
+            <td>
+              <span class="dml-24">305</span>
+              <span class="dml-tot" style="display:none">12.0M</span>
+            </td>
+            <td>
+              <span class="dml-24"><span class="consumo-bar-wrap" style="width:80px">
+        <span class="consumo-bar-fill fill-teal" style="width:0.2%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">0.2%</span></span>
+              <span class="dml-tot" style="display:none"><span class="consumo-bar-wrap" style="width:80px">
+        <span class="consumo-bar-fill fill-teal" style="width:98.5%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">98.5%</span></span>
+            </td>
+            <td>2</td>
+            <td><span class="consumo-bar-wrap" style="width:80px">
+        <span class="consumo-bar-fill fill-amber" style="width:40.0%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">40.0%</span></td>
+            <td class="text-muted small">10.2 GB</td>
+          </tr>
+          
+        </tbody>
+      </table>
+    </div>
+
+    
+    <div class="env-breakdown-header">Desglose por equipo y entorno</div>
+    <div class="table-wrap">
+      <table id="consumoEnvTable">
+        <thead><tr>
+          <th>Equipo</th>
+          <th>Cost Center</th>
+          <th>Entorno</th>
+          <th>Tablas</th>
+          <th>% Tablas</th>
+          <th>DML</th>
+          <th>% DML</th>
+          <th>Replicats</th>
+          <th>Deployments</th>
+          <th>Tamaño tablas</th>
+        </tr></thead>
+        <tbody>
+          
+          <tr class="">
+            <td><strong>TeamDataOps</strong></td>
+            <td class="text-muted small">CC001</td>
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td>1</td>
+            <td><span class="consumo-bar-wrap" style="width:60px">
+        <span class="consumo-bar-fill fill-purple" style="width:16.7%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">16.7%</span></td>
+            <td>
+              <span class="dml-24">2.4K</span>
+              <span class="dml-tot" style="display:none">2.4K</span>
+            </td>
+            <td>
+              <span class="dml-24"><span class="consumo-bar-wrap" style="width:60px">
+        <span class="consumo-bar-fill fill-teal" style="width:1.3%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">1.3%</span></span>
+              <span class="dml-tot" style="display:none"><span class="consumo-bar-wrap" style="width:60px">
+        <span class="consumo-bar-fill fill-teal" style="width:0%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">0.0%</span></span>
+            </td>
+            <td class="small">1</td>
+            <td class="text-muted small mono">OGG_CDC_ODB_DAA_R01_AWS_PRE</td>
+            <td class="text-muted small">2.0 GB</td>
+          </tr>
+          
+          <tr class="">
+            <td><strong>TeamDataOps</strong></td>
+            <td class="text-muted small">CC001</td>
+            <td><span class="badge badge-pro">PRO</span></td>
+            <td>1</td>
+            <td><span class="consumo-bar-wrap" style="width:60px">
+        <span class="consumo-bar-fill fill-purple" style="width:16.7%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">16.7%</span></td>
+            <td>
+              <span class="dml-24">155.3K</span>
+              <span class="dml-tot" style="display:none">155.3K</span>
+            </td>
+            <td>
+              <span class="dml-24"><span class="consumo-bar-wrap" style="width:60px">
+        <span class="consumo-bar-fill fill-teal" style="width:83.6%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">83.6%</span></span>
+              <span class="dml-tot" style="display:none"><span class="consumo-bar-wrap" style="width:60px">
+        <span class="consumo-bar-fill fill-teal" style="width:1.3%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">1.3%</span></span>
+            </td>
+            <td class="small">1</td>
+            <td class="text-muted small mono">OGG_DR_ODB_DAA_R01_AWS_PRO</td>
+            <td class="text-muted small">4.0 GB</td>
+          </tr>
+          
+          <tr class="">
+            <td><strong>TeamRisk</strong></td>
+            <td class="text-muted small">CC002</td>
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td>1</td>
+            <td><span class="consumo-bar-wrap" style="width:60px">
+        <span class="consumo-bar-fill fill-purple" style="width:16.7%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">16.7%</span></td>
+            <td>
+              <span class="dml-24">475</span>
+              <span class="dml-tot" style="display:none">475</span>
+            </td>
+            <td>
+              <span class="dml-24"><span class="consumo-bar-wrap" style="width:60px">
+        <span class="consumo-bar-fill fill-teal" style="width:0.3%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">0.3%</span></span>
+              <span class="dml-tot" style="display:none"><span class="consumo-bar-wrap" style="width:60px">
+        <span class="consumo-bar-fill fill-teal" style="width:0%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">0.0%</span></span>
+            </td>
+            <td class="small">1</td>
+            <td class="text-muted small mono">OGG_CDC_ODB_DAA_R01_AWS_PRE</td>
+            <td class="text-muted small">512 MB</td>
+          </tr>
+          
+          <tr class="">
+            <td><strong>TeamRisk</strong></td>
+            <td class="text-muted small">CC002</td>
+            <td><span class="badge badge-pro">PRO</span></td>
+            <td>2</td>
+            <td><span class="consumo-bar-wrap" style="width:60px">
+        <span class="consumo-bar-fill fill-purple" style="width:33.3%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">33.3%</span></td>
+            <td>
+              <span class="dml-24">27.4K</span>
+              <span class="dml-tot" style="display:none">27.4K</span>
+            </td>
+            <td>
+              <span class="dml-24"><span class="consumo-bar-wrap" style="width:60px">
+        <span class="consumo-bar-fill fill-teal" style="width:14.7%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">14.7%</span></span>
+              <span class="dml-tot" style="display:none"><span class="consumo-bar-wrap" style="width:60px">
+        <span class="consumo-bar-fill fill-teal" style="width:0.2%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">0.2%</span></span>
+            </td>
+            <td class="small">2</td>
+            <td class="text-muted small mono">OGG_DR_ODB_DAA_R01_AWS_PRO</td>
+            <td class="text-muted small">1.6 GB</td>
+          </tr>
+          
+          <tr class="team-unattr">
+            <td><strong>Sin equipo</strong></td>
+            <td class="text-muted small">—</td>
+            <td><span class="badge badge-pre">PRE</span></td>
+            <td>2</td>
+            <td><span class="consumo-bar-wrap" style="width:60px">
+        <span class="consumo-bar-fill fill-purple" style="width:33.3%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">33.3%</span></td>
+            <td>
+              <span class="dml-24">—</span>
+              <span class="dml-tot" style="display:none">12.0M</span>
+            </td>
+            <td>
+              <span class="dml-24"><span class="consumo-bar-wrap" style="width:60px">
+        <span class="consumo-bar-fill fill-teal" style="width:0%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">0.0%</span></span>
+              <span class="dml-tot" style="display:none"><span class="consumo-bar-wrap" style="width:60px">
+        <span class="consumo-bar-fill fill-teal" style="width:98.5%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">98.5%</span></span>
+            </td>
+            <td class="small">2</td>
+            <td class="text-muted small mono">OGG_CDC_ODB_DAA_R01_AWS_PRE, OGG_INI_ODB_DAA_R01_AWS_PRE</td>
+            <td class="text-muted small">10.1 GB</td>
+          </tr>
+          
+          <tr class="team-unattr">
+            <td><strong>Sin equipo</strong></td>
+            <td class="text-muted small">—</td>
+            <td><span class="badge badge-pro">PRO</span></td>
+            <td>1</td>
+            <td><span class="consumo-bar-wrap" style="width:60px">
+        <span class="consumo-bar-fill fill-purple" style="width:16.7%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">16.7%</span></td>
+            <td>
+              <span class="dml-24">305</span>
+              <span class="dml-tot" style="display:none">305</span>
+            </td>
+            <td>
+              <span class="dml-24"><span class="consumo-bar-wrap" style="width:60px">
+        <span class="consumo-bar-fill fill-teal" style="width:0.2%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">0.2%</span></span>
+              <span class="dml-tot" style="display:none"><span class="consumo-bar-wrap" style="width:60px">
+        <span class="consumo-bar-fill fill-teal" style="width:0%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">0.0%</span></span>
+            </td>
+            <td class="small">1</td>
+            <td class="text-muted small mono">OGG_DR_ODB_DAA_R01_AWS_PRO</td>
+            <td class="text-muted small">128 MB</td>
+          </tr>
+          
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+  
+
+  <div class="footer">Oracle GoldenGate Daily Report · 14/09/2026 11:47</div>
+
+</div>
+
+<script>
+  const TIPO_DESC = {
+    "EXTR_CDC":  "Extract CDC – Captura cambios en tiempo real de la BD origen",
+    "EXTR_INI":  "Extract Initial Load – Carga inicial de datos históricos desde la BD origen",
+    "DIST_PATH": "Distribution Path – Canal de envío de trail files al servidor destino",
+    "REPL_CDC":  "Replicat CDC – Aplica cambios en tiempo real en la BD destino",
+    "REPL_INI":  "Replicat Initial Load – Aplica la carga inicial de datos en la BD destino",
+    "RCVR_PATH": "Receiver Path – Canal de recepción de trail files desde el servidor origen"
+  };
+
+  const _tt = document.getElementById('tt');
+  document.addEventListener('mouseover', function(e) {
+    const el = e.target.closest('.tooltip-tipo, .tooltip-info');
+    if (!el) return;
+    const desc = el.classList.contains('tooltip-tipo')
+                 ? TIPO_DESC[el.dataset.tipo]
+                 : el.dataset.tooltip;
+    if (!desc) return;
+    _tt.textContent = desc;
+    _tt.style.opacity = '1';
+  });
+  document.addEventListener('mouseout', function(e) {
+    if (e.target.closest('.tooltip-tipo, .tooltip-info')) _tt.style.opacity = '0';
+  });
+  document.addEventListener('mousemove', function(e) {
+    _tt.style.left = (e.clientX + 14) + 'px';
+    _tt.style.top  = (e.clientY - 34) + 'px';
+  });
+
+  function showTab(e, name) {
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    e.currentTarget.classList.add('active');
+  }
+
+  const COUNTS_BY_FILTER = {"procs": {"|": 15, "|DEV": 0, "|PRE": 10, "|PRO": 5, "Online|": 11, "Online|DEV": 0, "Online|PRE": 6, "Online|PRO": 5, "InitialLoad|": 4, "InitialLoad|DEV": 0, "InitialLoad|PRE": 4, "InitialLoad|PRO": 0}, "tables": {"|": 16, "|DEV": 0, "|PRE": 11, "|PRO": 5, "Online|": 12, "Online|DEV": 0, "Online|PRE": 7, "Online|PRO": 5, "InitialLoad|": 4, "InitialLoad|DEV": 0, "InitialLoad|PRE": 4, "InitialLoad|PRO": 0}};
+
+  function updateTabCounts() {
+    const grupo = document.body.classList.contains('grupo-Online')      ? 'Online'
+                : document.body.classList.contains('grupo-InitialLoad') ? 'InitialLoad'
+                : '';
+    const env   = document.body.classList.contains('env-DEV') ? 'DEV'
+                : document.body.classList.contains('env-PRE') ? 'PRE'
+                : document.body.classList.contains('env-PRO') ? 'PRO'
+                : '';
+    const key = grupo + '|' + env;
+    const cp = document.getElementById('count-procesos');
+    const ct = document.getElementById('count-tablas');
+    if (cp) cp.textContent = COUNTS_BY_FILTER.procs[key]  ?? 0;
+    if (ct) ct.textContent = COUNTS_BY_FILTER.tables[key] ?? 0;
+  }
+
+  function setGrupoGlobal(btn, grupo) {
+    document.body.classList.remove('grupo-Online', 'grupo-InitialLoad');
+    if (grupo) document.body.classList.add('grupo-' + grupo);
+    document.querySelectorAll('#grupoToggle .toggle-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    updateTabCounts();
+  }
+
+  function setEnvGlobal(btn, env) {
+    document.body.classList.remove('env-DEV', 'env-PRE', 'env-PRO');
+    if (env) document.body.classList.add('env-' + env);
+    document.querySelectorAll('#envGlobalToggle .toggle-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    updateTabCounts();
+    updateIniGlobal(env);
+    renderConsumoCharts(_consumoMode);
+  }
+
+  function _activeEnv() {
+    return document.body.classList.contains('env-DEV') ? 'DEV'
+         : document.body.classList.contains('env-PRE') ? 'PRE'
+         : document.body.classList.contains('env-PRO') ? 'PRO' : '';
+  }
+
+  function _fmtDur(sec) {
+    if (sec == null) return '—';
+    sec = Math.floor(sec);
+    if (sec < 60)   return sec + 's';
+    if (sec < 3600) return Math.floor(sec/60) + 'm ' + (sec%60) + 's';
+    const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60);
+    if (h < 24) return h + 'h ' + m + 'm';
+    return Math.floor(h/24) + 'd ' + (h%24) + 'h';
+  }
+
+  function _iniCardHtml(sm) {
+    if (!sm || !sm.total_oracle_rows) return '<div style="text-align:center;padding:20px;color:#64748b;font-size:13px;font-style:italic">Sin procesos de carga inicial en este entorno</div>';
+    const pp  = sm.overall_progress_pct != null ? sm.overall_progress_pct.toFixed(1) : null;
+    const ep  = sm.overall_extract_pct  != null ? sm.overall_extract_pct.toFixed(1)  : null;
+    const bn  = sm.bottleneck ? `<span class="badge" style="background:#1e3a5f;color:#94a3b8;font-size:10px">bottleneck: ${sm.bottleneck}</span>` : '';
+    const fmtPct = (p) => p != null ? `<span style="color:#0891b2">${p}%</span>` : '';
+    const fmtPctP = (p) => p != null ? `<span style="color:#7c3aed">${p}%</span>` : '';
+    const eRate  = sm.agg_extract_rate  ? `<span style="color:#e2e8f0">${_dFmtNum(Math.floor(sm.agg_extract_rate  * 60))} rows/min</span>` : '<span class="text-muted">—</span>';
+    const rRate  = sm.agg_replicat_rate ? `<span style="color:#e2e8f0">${_dFmtNum(Math.floor(sm.agg_replicat_rate * 60))} rows/min</span>` : '<span class="text-muted">—</span>';
+    const eEta   = sm.extract_eta_sec  === 0 ? '<span style="color:#6ee7b7">Completado ✓</span>' : sm.extract_eta_sec  != null ? '~' + _fmtDur(sm.extract_eta_sec)  : '<span class="text-muted">—</span>';
+    const rEta   = sm.replicat_eta_sec === 0 ? '<span style="color:#6ee7b7">Completado ✓</span>' : sm.replicat_eta_sec != null ? '~' + _fmtDur(sm.replicat_eta_sec) : '<span class="text-muted">pendiente de inicio</span>';
+    const trail  = sm.in_trail > 0 ? `&nbsp;·&nbsp;<span style="color:#d97706">${_dFmtNum(sm.in_trail)} en trail</span>` : '';
+    const pend   = sm.n_repl_pending > 0 ? `&nbsp;·&nbsp;<span style="color:#7dd3fc">${sm.n_repl_pending} pending</span>` : '';
+    const eta    = sm.total_eta_sec != null
+      ? `<div style="margin-top:14px;padding-top:12px;border-top:1px solid #1e3a5f;font-size:12px;color:#94a3b8;text-align:center">ETA total estimada: <strong style="color:#e2e8f0;font-size:14px">~${_fmtDur(sm.total_eta_sec)}</strong>${sm.bottleneck ? '&nbsp;·&nbsp;bottleneck: <span style="color:#d97706">'+sm.bottleneck+'</span>' : ''}</div>` : '';
+    return `
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+        <span style="font-size:14px;font-weight:700;color:#e2e8f0;white-space:nowrap">Carga Inicial Global</span>
+        <div style="flex:1;background:#1e3a5f;border-radius:4px;height:10px;overflow:hidden">
+          <div style="background:linear-gradient(90deg,#0891b2,#06b6d4);height:100%;border-radius:4px;width:${pp || 0}%"></div>
+        </div>
+        <span style="font-size:14px;font-weight:700;color:#0891b2;white-space:nowrap">${pp != null ? pp : '—'}% replicado</span>
+        ${bn}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+        <div style="background:#162032;border-radius:6px;padding:14px 16px;border-left:3px solid #0891b2">
+          <div style="font-size:11px;font-weight:700;color:#0891b2;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">⛏ Extracción</div>
+          <div style="font-size:22px;font-weight:700;color:#e2e8f0">${_dFmtNum(sm.total_extracted)}</div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:8px">/ ${_dFmtNum(sm.total_oracle_rows)} filas estimadas Oracle${ep != null ? '&nbsp;·&nbsp;' + fmtPct(ep) : ''}</div>
+          <div class="small text-muted">Rate: ${eRate}&nbsp;·&nbsp;ETA: ${eEta}</div>
+          <div style="margin-top:8px;font-size:11px;color:#64748b">${sm.n_extr_running} running · ${sm.n_extr_done} done · ${sm.n_extr_total} total</div>
+        </div>
+        <div style="background:#162032;border-radius:6px;padding:14px 16px;border-left:3px solid #7c3aed">
+          <div style="font-size:11px;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">📥 Replicación</div>
+          <div style="font-size:22px;font-weight:700;color:#e2e8f0">${_dFmtNum(sm.total_replicated)}</div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:8px">/ ${_dFmtNum(sm.total_oracle_rows)} filas estimadas Oracle${pp != null ? '&nbsp;·&nbsp;' + fmtPctP(pp) : ''}</div>
+          <div class="small text-muted">Rate: ${rRate}&nbsp;·&nbsp;ETA: ${rEta}</div>
+          <div style="margin-top:8px;font-size:11px;color:#64748b">${sm.n_repl_running} running${pend} · ${sm.n_repl_done} done · ${sm.n_repl_total} total${trail}</div>
+        </div>
+      </div>${eta}`;
+  }
+
+  function updateIniGlobal(env) {
+    const card = document.getElementById('ini-global-card');
+    if (!card || typeof _iniSummaries === 'undefined') return;
+    const sm = env ? _iniSummaries[env] : _iniSummaries[''];
+    card.innerHTML = _iniCardHtml(sm || null);
+  }
+
+  function applyFilters(tableId, prefix) {
+    const textQ      = (document.getElementById(prefix+'Text')?.value       || '').toLowerCase();
+    const tipoQ      =  document.getElementById(prefix+'Tipo')?.value       || '';
+    const estadoQ    =  document.getElementById(prefix+'Estado')?.value     || '';
+    const envQ       =  document.getElementById(prefix+'Env')?.value        || '';
+    const depQ       =  document.getElementById(prefix+'Dep')?.value        || '';
+    const bbddQ      =  document.getElementById(prefix+'Bbdd')?.value       || '';
+    const engineQ    =  document.getElementById(prefix+'Dbengine')?.value   || '';
+    const teamQ      =  document.getElementById(prefix+'Team')?.value       || '';
+    const ccQ        =  document.getElementById(prefix+'Costcenter')?.value || '';
+    document.querySelectorAll('#' + tableId + ' tbody tr').forEach(tr => {
+      const ok = (!textQ   || tr.textContent.toLowerCase().includes(textQ))
+              && (!tipoQ   || tr.dataset.tipo       === tipoQ)
+              && (!estadoQ || tr.dataset.estado     === estadoQ)
+              && (!envQ    || tr.dataset.env        === envQ)
+              && (!depQ    || tr.dataset.dep        === depQ)
+              && (!bbddQ   || tr.dataset.bbdd       === bbddQ)
+              && (!engineQ || tr.dataset.dbengine   === engineQ)
+              && (!teamQ   || tr.dataset.team       === teamQ)
+              && (!ccQ     || tr.dataset.costcenter === ccQ);
+      tr.classList.toggle('tr-hidden', !ok);
+    });
+  }
+
+  const _sortState = {};
+  function sortTable(tableId, colIdx) {
+    const table = document.getElementById(tableId);
+    const tbody = table.querySelector('tbody');
+    const ths   = table.querySelectorAll('thead th');
+    const key   = tableId + ':' + colIdx;
+    const asc   = _sortState[key] !== true;
+    _sortState[key] = asc;
+
+    ths.forEach(th => th.classList.remove('th-sort-asc', 'th-sort-desc'));
+    ths[colIdx].classList.add(asc ? 'th-sort-asc' : 'th-sort-desc');
+
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+
+    function parseVal(td) {
+      if (!td) return '';
+      const clone = td.cloneNode(true);
+      clone.querySelectorAll('.sort-icon').forEach(el => el.remove());
+      const raw = clone.textContent.trim();
+      if (raw === '—' || raw === '') return asc ? '￿' : '';
+      const numM = raw.match(/^([\d.]+)([KMB]?)$/);
+      if (numM) {
+        const mult = {K:1e3, M:1e6, B:1e9}[numM[2]] || 1;
+        return parseFloat(numM[1]) * mult;
+      }
+      if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return new Date(raw).getTime() || raw;
+      const sizeM = raw.match(/^([\d.]+)\s*(GB|MB)$/i);
+      if (sizeM) return parseFloat(sizeM[1]) * (sizeM[2].toUpperCase() === 'GB' ? 1024 : 1);
+      return raw.toLowerCase();
+    }
+
+    rows.sort((a, b) => {
+      const va = parseVal(a.cells[colIdx]);
+      const vb = parseVal(b.cells[colIdx]);
+      if (typeof va === 'number' && typeof vb === 'number') return asc ? va - vb : vb - va;
+      return asc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+    });
+    rows.forEach(tr => tbody.appendChild(tr));
+  }
+
+  function exportFilteredHTML() {
+    const table = document.getElementById('tablesTable');
+    const headers = Array.from(table.querySelectorAll('thead th'))
+                        .map(th => th.childNodes[0].textContent.trim());
+
+    const visibleRows = Array.from(table.querySelectorAll('tbody tr'))
+                            .filter(tr => window.getComputedStyle(tr).display !== 'none');
+
+    if (visibleRows.length === 0) {
+      alert('No hay filas visibles para exportar. Ajusta los filtros primero.');
+      return;
+    }
+
+    // Build filter context description
+    const get = id => document.getElementById(id)?.value || '';
+    const parts = [];
+    if (get('tablesEnv'))    parts.push('Entorno: '  + get('tablesEnv'));
+    if (get('tablesBbdd'))   parts.push('BBDD: '     + get('tablesBbdd'));
+    if (get('tablesTipo'))   parts.push('Tipo: '     + get('tablesTipo'));
+    if (get('tablesEstado')) parts.push('Estado: '   + get('tablesEstado'));
+    if (get('tablesTeam'))   parts.push('Equipo: '   + get('tablesTeam'));
+    if (get('tablesText'))   parts.push('"' + get('tablesText') + '"');
+    const filterDesc = parts.length > 0 ? parts.join(' · ') : 'Sin filtros activos';
+    const modeLabel  = _statsMode === '24h' ? 'DML Hoy (desde medianoche)' : 'DML Total (desde startup)';
+
+    // Extract cell values — use data attributes for structured fields, textContent elsewhere
+    const rowsHtml = visibleRows.map(tr => {
+      const cells  = tr.querySelectorAll('td');
+      const env    = tr.dataset.env || '';
+      const estado = (tr.dataset.estado || '').toUpperCase();
+      const rowCls = estado === 'RUNNING' ? 'row-running'
+                   : estado === 'ABENDED' ? 'row-abended'
+                   : estado === 'STOPPED' ? 'row-stopped' : '';
+
+      const vals = Array.from(cells).map((td, i) => {
+        if (i === 0) return `<span class="badge badge-${env.toLowerCase()}">${env}</span>`;
+        if (i === 6) {  // Tabla: name + optional team tag
+          const name = td.querySelector('strong')?.textContent || td.textContent.trim();
+          const team = tr.dataset.team ? ` <span class="tag">${tr.dataset.team}</span>` : '';
+          return `<span class="mono">${name}</span>${team}`;
+        }
+        return td.textContent.trim().replace(/\s+/g, ' ');
+      });
+      return `<tr class="${rowCls}">${vals.map(v => `<td>${v}</td>`).join('')}</tr>`;
+    }).join('\n');
+
+    // Build filename
+    const now     = new Date();
+    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+    const envPart = get('tablesEnv') || get('tablesBbdd') || 'all';
+    const nowStr  = now.toLocaleDateString('es-ES') + ' ' + now.toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'});
+
+    const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OGG Tables — ${filterDesc}</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body  { font-family: 'Segoe UI', Arial, sans-serif; background: #0f172a; color: #e2e8f0; padding: 28px; }
+h1    { font-size: 18px; color: #38bdf8; margin-bottom: 6px; }
+.meta { font-size: 12px; color: #64748b; margin-bottom: 10px; }
+.filter-info { background: #1e293b; border: 1px solid #334155; border-radius: 6px;
+               padding: 7px 14px; font-size: 12px; color: #94a3b8; margin-bottom: 18px; }
+.table-wrap  { overflow-x: auto; border-radius: 8px; border: 1px solid #1e3a5f; }
+table  { width: 100%; border-collapse: collapse; font-size: 12px; white-space: nowrap; }
+thead th { background: #1e293b; color: #94a3b8; text-align: left; padding: 9px 12px;
+           border-bottom: 2px solid #334155; font-weight: 600; }
+tbody tr { border-bottom: 1px solid #1e293b; }
+tbody tr:nth-child(even) { background: #0f1f35; }
+tbody td { padding: 7px 12px; vertical-align: middle; }
+.row-running td:nth-child(6) { color: #4ade80; font-weight: 600; }
+.row-abended td:nth-child(6) { color: #f87171; font-weight: 600; }
+.row-stopped td:nth-child(6) { color: #64748b; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; }
+.badge-dev { background: #065f46; color: #6ee7b7; }
+.badge-pre { background: #581c87; color: #d8b4fe; }
+.badge-pro { background: #1e3a8a; color: #93c5fd; }
+.tag  { display: inline-block; background: #0c4a6e; color: #7dd3fc; border-radius: 3px;
+        font-size: 10px; padding: 1px 6px; margin-left: 4px; }
+.mono { font-family: 'Consolas', monospace; }
+.footer { margin-top: 14px; font-size: 11px; color: #334155; text-align: right; }
+</style>
+</head>
+<body>
+<h1>OGG Daily Report — Tablas</h1>
+<div class="meta">Exportado: ${nowStr} &nbsp;|&nbsp; ${visibleRows.length} filas &nbsp;|&nbsp; ${modeLabel}</div>
+<div class="filter-info">Filtros: ${filterDesc}</div>
+<div class="table-wrap">
+<table>
+<thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+<tbody>
+${rowsHtml}
+</tbody>
+</table>
+</div>
+<div class="footer">OGG Monitoring Report &mdash; generado autom&aacute;ticamente</div>
+</body>
+</html>`;
+
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `OGG_Tables_${envPart}_${dateStr}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  let _consumoMode = '24h';
+  function setConsumoMode(mode) {
+    if (_consumoMode === mode) return;
+    _consumoMode = mode;
+    document.querySelectorAll('#consumoStatsToggle .toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.cmode === mode));
+    const show24  = mode === '24h';
+    document.querySelectorAll('#tab-consumo .dml-24').forEach(el => el.style.display = show24  ? '' : 'none');
+    document.querySelectorAll('#tab-consumo .dml-tot').forEach(el => el.style.display = !show24 ? '' : 'none');
+    const dmlTitle = document.getElementById('donut-dml-title');
+    if (dmlTitle) dmlTitle.textContent = 'Distribución DML · ' + (show24 ? 'Hoy' : 'Total (startup)');
+    renderConsumoCharts(mode);
+  }
+
+  // ── Consumo donut charts ──────────────────────────────────────────────────────
+  const _dPalette = ['#0891b2','#7c3aed','#d97706','#059669','#e11d48','#ea580c'];
+  const _dGray    = '#475569';
+  const _dNS      = 'http://www.w3.org/2000/svg';
+
+  function _dFmtNum(n) {
+    if (n == null || n === 0) return '—';
+    if (n >= 1e6) return (n/1e6).toFixed(1)+'M';
+    if (n >= 1e3) return (n/1e3).toFixed(1)+'K';
+    return String(n);
+  }
+  function _dFmtSize(mb) {
+    if (!mb) return '—';
+    return mb >= 1024 ? (mb/1024).toFixed(1)+' GB' : Math.round(mb)+' MB';
+  }
+  function _dEsc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  function _drawDonut(svgId, legendId, cvalId, segments) {
+    const svg = document.getElementById(svgId);
+    const leg = document.getElementById(legendId);
+    const cval = document.getElementById(cvalId);
+    if (!svg) return;
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    if (leg) leg.innerHTML = '';
+    const total = segments.reduce((s,x) => s + (x.value||0), 0);
+    if (!total) { if (cval) cval.textContent = '—'; return; }
+    const cx=60, cy=60, R=50, r=30, GAP=0.03;
+    let angle = -Math.PI/2;
+    segments.forEach(seg => {
+      if (!seg.value) return;
+      const pct = seg.value/total, sweep = pct*2*Math.PI - GAP;
+      const a0 = angle + GAP/2, a1 = a0 + sweep, large = sweep > Math.PI ? 1 : 0;
+      const x1=cx+R*Math.cos(a0),y1=cy+R*Math.sin(a0),x2=cx+R*Math.cos(a1),y2=cy+R*Math.sin(a1);
+      const i1=cx+r*Math.cos(a1),j1=cy+r*Math.sin(a1),i2=cx+r*Math.cos(a0),j2=cy+r*Math.sin(a0);
+      const path = document.createElementNS(_dNS,'path');
+      path.setAttribute('d',`M${x1},${y1} A${R},${R},0,${large},1,${x2},${y2} L${i1},${j1} A${r},${r},0,${large},0,${i2},${j2} Z`);
+      path.setAttribute('fill', seg.color);
+      const op = seg.unattr ? '0.4' : '0.85';
+      path.setAttribute('opacity', op);
+      path.style.transition = 'opacity .12s';
+      path.addEventListener('mouseenter', () => path.setAttribute('opacity', seg.unattr ? '0.65':'1'));
+      path.addEventListener('mouseleave', () => path.setAttribute('opacity', op));
+      const t = document.createElementNS(_dNS,'title');
+      t.textContent = `${seg.label}: ${pct > 0 && pct*100 < 0.05 ? '<0.1' : (pct*100).toFixed(1)}%`;
+      path.appendChild(t); svg.appendChild(path);
+      if (leg) {
+        const row = document.createElement('div'); row.className = 'donut-legend-row';
+        row.innerHTML = `<span class="donut-legend-dot" style="background:${seg.color};opacity:${seg.unattr?.45:1}"></span>`
+          + `<span class="donut-legend-name" title="${_dEsc(seg.label)}">${_dEsc(seg.label)}</span>`
+          + `<span class="donut-legend-val">${seg.fmt(seg.value)}</span>`
+          + `<span class="donut-legend-pct">${pct > 0 && pct*100 < 0.05 ? '<0.1' : (pct*100).toFixed(1)}%</span>`;
+        leg.appendChild(row);
+      }
+      angle += pct*2*Math.PI;
+    });
+  }
+
+  function renderConsumoCharts(mode) {
+    if (typeof _consumoTeams === 'undefined') return;
+    const env  = _activeEnv();
+    const dKey = mode === 'tot' ? 'dmlTot' : 'dml24';
+
+    // Build env-filtered team data from by_team_env when an env filter is active
+    let teams;
+    if (env && typeof _consumoTeamEnvs !== 'undefined') {
+      const byTeam = {};
+      _consumoTeamEnvs.filter(t => t.env === env).forEach(t => {
+        if (!byTeam[t.team]) byTeam[t.team] = { team:t.team, dml24:0, dmlTot:0, size_mb:0, procs:0, unattr:t.unattr };
+        byTeam[t.team].dml24   += t.dml24   || 0;
+        byTeam[t.team].dmlTot  += t.dmlTot  || 0;
+        byTeam[t.team].size_mb += t.size_mb || 0;
+        byTeam[t.team].procs   += t.procs   || 0;
+      });
+      teams = _consumoTeams.map(t => byTeam[t.team] || Object.assign({}, t, {dml24:0,dmlTot:0,size_mb:0,procs:0}));
+    } else {
+      teams = _consumoTeams;
+    }
+
+    const totDml   = teams.reduce((s,t) => s+(t[dKey]||0), 0);
+    const totSize  = teams.reduce((s,t) => s+(t.size_mb||0), 0);
+    const totProcs = teams.reduce((s,t) => s+(t.procs||0), 0);
+    const mk = (t,i,val,fmt) => ({ label:t.team, value:val, color:t.unattr?_dGray:_dPalette[i%_dPalette.length], unattr:t.unattr, fmt });
+    _drawDonut('svg-dml',  'svg-dml-legend',  'svg-dml-cval',  teams.map((t,i) => mk(t,i,t[dKey],_dFmtNum)));
+    _drawDonut('svg-size', 'svg-size-legend', 'svg-size-cval', teams.map((t,i) => mk(t,i,t.size_mb,_dFmtSize)));
+    _drawDonut('svg-infra','svg-infra-legend','svg-infra-cval',teams.map((t,i) => mk(t,i,t.procs,v=>String(v))));
+    const dv = document.getElementById('svg-dml-cval');   if(dv) dv.textContent = _dFmtNum(totDml)||'—';
+    const sv = document.getElementById('svg-size-cval');  if(sv) sv.textContent = _dFmtSize(totSize)||'—';
+    const iv = document.getElementById('svg-infra-cval'); if(iv) iv.textContent = totProcs||'—';
+  }
+  renderConsumoCharts('24h');
+
+  let _statsMode = '24h';
+  function setStatsMode(mode) {
+    if (_statsMode === mode) return;
+    _statsMode = mode;
+    document.querySelectorAll('#statsToggle .toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+    const labels = {ins:'Inserts', upd:'Updates', del:'Deletes', ups:'Upserts', dis:'Discards'};
+    const suffix = mode === '24h' ? ' (Hoy)' : ' (Total)';
+    Object.keys(labels).forEach(k => {
+      const th = document.getElementById('th-' + k);
+      if (th) th.firstChild.textContent = labels[k] + suffix;
+    });
+    document.querySelectorAll('#tablesTable tbody td[data-h24]').forEach(td => {
+      td.textContent = mode === '24h' ? td.dataset.h24 : td.dataset.tot;
+      td.className   = mode === '24h' ? td.dataset.cls24 : td.dataset.clstot;
+    });
+  }
+
+
+</script>
+</body>
+</html>

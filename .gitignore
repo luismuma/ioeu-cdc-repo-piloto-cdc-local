@@ -1,0 +1,40 @@
+# Python virtual environments
+.venv*/
+venv/
+env/
+.env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Secrets — vault password files (never commit these)
+.vault_pass
+.vault_pass.txt
+*.vault_pass
+# Encrypted vault files ARE safe to commit (ansible-vault encrypted)
+
+# Secrets — dotenv, credential files, and local secret directories
+.env
+.env.*
+*.env
+secrets/
+secrets.yml
+secrets.yaml
+credentials.json
+*.key
+!*.pub.key
+
+# Vault directory — plaintext files must never be committed here
+vault/
+
+# IDE
+.vscode/
+
+# CDC-CONTROLLER
+cdc-controller/logs/
+cdc-controller/input/
+
+# OGG monitoring — generated HTML reports
+monitoring/ogg/reports/

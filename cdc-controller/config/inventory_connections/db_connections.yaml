@@ -1,0 +1,123 @@
+---
+# Databases connections Inventory
+#
+# One entry per database (key = <bbdd_name>_<env>). Each entry holds both PRIM and STBY
+# connection strings (and their OGG credential alias names) plus shared metadata.
+# 'defaults' values are merged into every connection entry; per-entry values override the default.
+
+defaults:
+  initial_load_parallel: "8"
+
+# ── POC/Development/Integration (DEV) ───────────────────────────────────────────────────────────
+# Oracle :
+ACNPDB_DEV:
+  env:                   "DEV"
+  db_engine:             "ORACLE"
+  conn_name_prim:        "ACNPDB_PRIM_DEV"
+  conn_string_prim:      "(DESCRIPTION=(CONNECT_TIMEOUT=10)(RETRY_COUNT=3)(ADDRESS_LIST=(LOAD_BALANCE=OFF)(FAILOVER=ON)(ADDRESS=(PROTOCOL=TCP)(HOST=cllpre24-scan.es.mapfre.net)(PORT=1534))(ADDRESS=(PROTOCOL=TCP)(HOST=cllpre23-scan.es.mapfre.net)(PORT=1534)))(CONNECT_DATA=(SERVER=DEDICATED)(SERVICE_NAME=P_OGG_CPCOPRUM)))"
+  conn_name_stby:        "ACNPDB_STBY_DEV"
+  conn_string_stby:      "(DESCRIPTION=(CONNECT_TIMEOUT=10)(RETRY_COUNT=3)(ADDRESS_LIST=(LOAD_BALANCE=OFF)(FAILOVER=ON)(ADDRESS=(PROTOCOL=TCP)(HOST=cllpre24-scan.es.mapfre.net)(PORT=1534))(ADDRESS=(PROTOCOL=TCP)(HOST=cllpre23-scan.es.mapfre.net)(PORT=1534)))(CONNECT_DATA=(SERVER=DEDICATED)(SERVICE_NAME=P_OGG_CPCOPRUM_RO)))"
+  db_user:               "C##GGADMIN"
+  password_credential:   "ORACLE_ACNPDB_GGADMIN"
+  pdb:                   "ACNPDB"
+  cdc_seq:               "AC"    ## only two characters
+  initial_load_parallel: "6"
+
+MD01_DEV:
+  env:                   "DEV"
+  db_engine:             "ORACLE"
+  conn_name_prim:        "MD01_PRIM_DEV"
+  conn_string_prim:      "(DESCRIPTION=(CONNECT_TIMEOUT=6)(RETRY_COUNT=3)(ADDRESS_LIST=(LOAD_BALANCE=OFF)(FAILOVER=ON)(ADDRESS=(PROTOCOL=TCP)(HOST=ORACDES003.es.mapfre.net)(PORT=1534)))(CONNECT_DATA=(SERVER=DEDICATED)(SERVICE_NAME=D_OGG_CDES003)))"
+  db_user:               "C##GGADMIN"
+  password_credential:   "ORACLE_MD01_GGADMIN"
+  pdb:                   "MD01"
+  cdc_seq:               "M1"    ## only two characters
+  initial_load_parallel: "6"
+
+# Mongo :
+CDCTEST_DEV:
+  env:                   "DEV"
+  db_engine:             "MONGO"
+  conn_name_prim:        "CDCTEST_PRIM_DEV"
+  conn_string_prim:      "pintmdbesp-infra-dev-pplatfunc-dev-pl-0.wmgjce.mongodb.net/cdctest"
+  db_user:               "cdctest_ddl"
+  password_credential:   "MONGO_CDCTEST_DDL"
+  cdc_seq:               "CD"    ## only two characters
+  initial_load_parallel: "4"
+
+# DB2 :
+DB2DSNT_DEV:
+  env:                   "DEV"
+  db_engine:             "DB2"
+  conn_name_prim:        "DB2DSNT_DEV"
+  conn_string_prim:      "DATABASE=DB2DSNT;HOSTNAME=ibmvidades.es.mapfre.net;PORT=447;PROTOCOL=TCPIP;"
+  db_user:               "APPCDCL"
+  password_credential:   "DB2_DS_PASSWORD"
+
+# ── Preproduction (PRE) ───────────────────────────────────────────────────────────
+# Oracle :
+ACNPDB_PRE:
+  env:                   "PRE"
+  db_engine:             "ORACLE"
+  conn_name_prim:        "ACNPDB_PRIM_PRE"
+  conn_string_prim:      "(DESCRIPTION=(CONNECT_TIMEOUT=6)(RETRY_COUNT=3)(ADDRESS_LIST=(LOAD_BALANCE=OFF)(FAILOVER=ON)(ADDRESS=(PROTOCOL=TCP)(HOST=cllpre24-scan.es.mapfre.net)(PORT=1534))(ADDRESS=(PROTOCOL=TCP)(HOST=cllpre23-scan.es.mapfre.net)(PORT=1534)))(CONNECT_DATA=(SERVER=DEDICATED)(SERVICE_NAME=P_OGG_CPCOPRUM)))"
+  conn_name_stby:        "ACNPDB_STBY_PRE"
+  conn_string_stby:      "(DESCRIPTION=(CONNECT_TIMEOUT=6)(RETRY_COUNT=3)(ADDRESS_LIST=(LOAD_BALANCE=OFF)(FAILOVER=ON)(ADDRESS=(PROTOCOL=TCP)(HOST=cllpre24-scan.es.mapfre.net)(PORT=1534))(ADDRESS=(PROTOCOL=TCP)(HOST=cllpre23-scan.es.mapfre.net)(PORT=1534)))(CONNECT_DATA=(SERVER=DEDICATED)(SERVICE_NAME=P_OGG_CPCOPRUM_RO)))"
+  db_user:               "C##GGADMIN"
+  password_credential:   "ORACLE_ACNPDB_GGADMIN"
+  pdb:                   "ACNPDB"
+  cdc_seq:               "AC"    ## only two characters
+  initial_load_parallel: "6"
+
+MP01_PRE:
+  env:                   "PRE"
+  db_engine:             "ORACLE"
+  conn_name_prim:        "MP01_PRIM_PRE"
+  conn_string_prim:      "(DESCRIPTION=(CONNECT_TIMEOUT=6)(RETRY_COUNT=3)(ADDRESS_LIST=(LOAD_BALANCE=OFF)(FAILOVER=ON)(ADDRESS=(PROTOCOL=TCP)(HOST=ORAMP01.es.mapfre.net)(PORT=1534))(ADDRESS=(PROTOCOL=TCP)(HOST=ORAMP01-DG.es.mapfre.net)(PORT=1534)))(CONNECT_DATA=(SERVER=DEDICATED)(SERVICE_NAME=P_OGG_CPES001)))"
+  conn_name_stby:        "MP01_STBY_PRE"
+  conn_string_stby:      "(DESCRIPTION=(CONNECT_TIMEOUT=6)(RETRY_COUNT=3)(ADDRESS_LIST=(LOAD_BALANCE=OFF)(FAILOVER=ON)(ADDRESS=(PROTOCOL=TCP)(HOST=ORAMP01.es.mapfre.net)(PORT=1534))(ADDRESS=(PROTOCOL=TCP)(HOST=ORAMP01-DG.es.mapfre.net)(PORT=1534)))(CONNECT_DATA=(SERVER=DEDICATED)(SERVICE_NAME=P_OGG_CPES001_RO)))"
+  db_user:               "C##GGADMIN"
+  password_credential:   "ORACLE_MP01_GGADMIN"
+  pdb:                   "MP01"
+  cdc_seq:               "M1"
+  initial_load_parallel: "16"
+
+BDMPRE_PRE:
+  env:                   "PRE"
+  db_engine:             "ORACLE"
+  conn_name_prim:        "BDMPRE_PRIM_PRE"
+  conn_string_prim:      "(DESCRIPTION=(CONNECT_TIMEOUT=6)(RETRY_COUNT=3)(ADDRESS_LIST=(LOAD_BALANCE=OFF)(FAILOVER=ON)(ADDRESS=(PROTOCOL=TCP)(HOST=ORABDMPRE.es.mapfre.net)(PORT=1534))(ADDRESS=(PROTOCOL=TCP)(HOST=ORABDMPRE-DG.es.mapfre.net)(PORT=1534)))(CONNECT_DATA=(SERVER=DEDICATED)(SERVICE_NAME=P_OGG_BDMPRE)))"
+  conn_name_stby:        ""
+  conn_string_stby:      ""
+  db_user:               "GGADMIN"
+  password_credential:   "ORACLE_BDMPRE_GGADMIN"
+  pdb:                   ""
+  cdc_seq:               "BM"
+  initial_load_parallel: "16"
+
+# Mongo :
+
+
+# DB2 :
+
+
+
+
+# ── Production (PRO-REAL) ───────────────────────────────────────────────────────────
+# Oracle :
+MR01_PRO:
+  env:                   "PRO"
+  db_engine:             "ORACLE"
+  conn_name_prim:        "MR01_PRIM_PRO"
+  conn_string_prim:      "(DESCRIPTION=(CONNECT_TIMEOUT=6)(RETRY_COUNT=3)(ADDRESS_LIST=(LOAD_BALANCE=OFF)(FAILOVER=ON)(ADDRESS=(PROTOCOL=TCP)(HOST=ORAMR01.es.mapfre.net)(PORT=1534))(ADDRESS=(PROTOCOL=TCP)(HOST=ORAMR01-DG.es.mapfre.net)(PORT=1534)))(CONNECT_DATA=(SERVER=DEDICATED)(SERVICE_NAME=R_OGG_CRES001)))"
+  conn_name_stby:        "MR01_STBY_PRO"
+  conn_string_stby:      "(DESCRIPTION=(CONNECT_TIMEOUT=6)(RETRY_COUNT=3)(ADDRESS_LIST=(LOAD_BALANCE=OFF)(FAILOVER=ON)(ADDRESS=(PROTOCOL=TCP)(HOST=ORAMR01.es.mapfre.net)(PORT=1534))(ADDRESS=(PROTOCOL=TCP)(HOST=ORAMR01-DG.es.mapfre.net)(PORT=1534)))(CONNECT_DATA=(SERVER=DEDICATED)(SERVICE_NAME=R_OGG_CRES001_RO)))"
+  db_user:               "C##GGADMIN"
+  password_credential:   "ORACLE_MR01_GGADMIN"
+  pdb:                   "MR01"
+  cdc_seq:               "M1"    ## only two characters
+  initial_load_parallel: "16"
+
+# Mongo :
+
+# DB2 :

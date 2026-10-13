@@ -1,0 +1,16 @@
+---
+## Variables HA para PROD — mapa de nombres canónicos → IPs por AZ.
+## Usado por iidr_ha_switch_az.yml para actualizar /etc/hosts al conmutar.
+
+iidr_ha_canonical_hosts:
+  - canonical: "iidr-gr-db2-acs-a01-aws-pro"
+    ip_az_a: "10.90.114.26"   # IP de LESAWSEW161143 AS AZ-A
+    ip_az_b: "10.90.114.58"   # IP de LESAWSEW161155 AS AZ-B
+
+  - canonical: "iidr-gr-db2-db2-e01-aws-pro"
+    ip_az_a: "10.90.114.23"   # IP de LESAWSEW161140 DB2 AZ-A
+    ip_az_b: "10.90.114.56"   # IP de LESAWSEW161153 DB2 AZ-B
+
+  - canonical: "iidr-gr-db2-kfk-r01-aws-pro"
+    ip_az_a: "10.90.114.24"   # IP de LESAWSEW161141 KFK AZ-A
+    ip_az_b: "10.90.114.40"   # IP de LESAWSEW161154 KFK AZ-B

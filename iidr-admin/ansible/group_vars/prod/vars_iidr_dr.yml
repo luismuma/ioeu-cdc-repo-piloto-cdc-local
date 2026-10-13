@@ -1,0 +1,34 @@
+---
+## Variables DR para PROD — mapa de nombres canónicos → IPs de las TRES ubicaciones
+## posibles del servicio: AZ-A Irlanda, AZ-B Irlanda y DR Frankfurt.
+## Usado por iidr_dr_switch.yml para actualizar /etc/hosts al conmutar entre ellas.
+##
+## DR es un switch over controlado a otra región (eu-central-1, Frankfurt). El EFS de
+## Frankfurt es un volumen DISTINTO al de Irlanda, replicado asíncronamente por AWS
+## (EFS Replication nativa, RPO ~10-15 min). El nombre canónico del servicio NO cambia
+## (el certificado apunta al servicio, no a la ubicación); solo cambia la IP a la que
+## resuelve /etc/hosts (en real, el DNS; ~1h de propagación, margen sobre el RPO).
+##
+## El switch es simétrico entre las tres ubicaciones: iidr_dr_switch.yml recibe la
+## extra-var iidr_dr_target_location (a | b | dr) = la ubicación que queda ACTIVA.
+## Para volver de DR a Irlanda se lanza el mismo playbook con target_location a o b.
+##
+## Las IPs de AZ-A/AZ-B coinciden con vars_iidr_ha.yml (Irlanda). Se replican aquí
+## para que un único fichero describa las tres ubicaciones y el playbook DR no dependa
+## de vars_iidr_ha.yml.
+
+iidr_dr_canonical_hosts:
+  - canonical: "iidr-gr-db2-acs-a01-aws-pro"
+    ip_az_a: "10.90.114.26"   # LESAWSEW161143 AS AZ-A Irlanda
+    ip_az_b: "10.90.114.58"   # LESAWSEW161155 AS AZ-B Irlanda
+    ip_dr:   "10.38.91.24"    # LESAWSEC161106 AS Frankfurt
+
+  - canonical: "iidr-gr-db2-db2-e01-aws-pro"
+    ip_az_a: "10.90.114.23"   # LESAWSEW161140 DB2 AZ-A Irlanda
+    ip_az_b: "10.90.114.56"   # LESAWSEW161153 DB2 AZ-B Irlanda
+    ip_dr:   "10.38.91.12"    # LESAWSEC161104 motor origen (DB2) Frankfurt
+
+  - canonical: "iidr-gr-db2-kfk-r01-aws-pro"
+    ip_az_a: "10.90.114.24"   # LESAWSEW161141 KFK AZ-A Irlanda
+    ip_az_b: "10.90.114.40"   # LESAWSEW161154 KFK AZ-B Irlanda
+    ip_dr:   "10.38.91.22"    # LESAWSEC161105 motor destino (Kafka) Frankfurt

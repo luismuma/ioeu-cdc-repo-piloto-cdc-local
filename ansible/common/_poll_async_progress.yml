@@ -1,0 +1,74 @@
+---
+# Shared async polling helper — batched-recursion implementation.
+#
+# Combines a small inner loop (batch of polls per call) with recursive
+# self-include for the outer loop. This avoids two known failure modes:
+#
+#   1. Deep recursion crash (old recursive-per-poll approach):
+#      Each level handles _poll_batch_size polls, so recursion depth =
+#      total_polls / batch_size — well under Python's limit for any
+#      realistic job duration.
+#
+#   2. Runaway loop (loop-per-poll approach):
+#      include_tasks + loop `when` does not reliably re-read set_fact values
+#      from inside previous iterations, causing all items to execute.
+#      The non-looped recursive include below DOES correctly re-evaluate
+#      `when` from the current host facts after each batch, so it terminates
+#      properly as soon as _async_done becomes true.
+#
+# Required vars on FIRST call only:
+#   _async_jid:           ansible_job_id from the async shell/command task
+#   _async_log_path:      absolute path to the log file on the EE filesystem
+#   _async_poll_interval: seconds to pause between polls
+#   _async_poll_max:      max iterations before giving up (0 = up to 10 000)
+#   _async_self_path:     absolute path to this file
+#
+# Optional vars for periodic log sync to a reporting server:
+#   _async_log_sync_host, _async_log_sync_dest, _async_log_sync_become,
+#   _async_log_sync_become_user, _async_log_sync_become_exe, _async_log_sync_user
+
+# ── Initialise shared state (first call only) ───────────────────────────────
+- name: "Initialise polling state"
+  ansible.builtin.set_fact:
+    _poll_jid:              "{{ _async_jid }}"
+    _poll_log_path:         "{{ _async_log_path }}"
+    _poll_interval:         "{{ _async_poll_interval | int }}"
+    _poll_max:              "{{ _async_poll_max | default(0) | int }}"
+    _poll_self_path:        "{{ _async_self_path }}"
+    _poll_base_dir:         "{{ _async_self_path | dirname }}"
+    _poll_batch_size:       50
+    _poll_sync_host:        "{{ _async_log_sync_host        | default('') }}"
+    _poll_sync_dest:        "{{ _async_log_sync_dest        | default('') }}"
+    _poll_sync_dir:         "{{ _async_log_sync_dest        | default('') | regex_replace('/[^/]+$', '') }}"
+    _poll_sync_become:      "{{ _async_log_sync_become      | default(false) | bool }}"
+    _poll_sync_become_user: "{{ _async_log_sync_become_user | default('oracle') }}"
+    _poll_sync_become_exe:  "{{ _async_log_sync_become_exe  | default('/usr/bin/sudo') }}"
+    _poll_sync_user:        "{{ _async_log_sync_user        | default('ec2-user') }}"
+    _poll_n:                -1
+    _async_done:            false
+    _async_lines_seen:      0
+    _poll_sync_lines_sent:  0
+    _poll_initialized:      true
+  when: not (_poll_initialized | default(false) | bool)
+
+# ── Inner batch ─────────────────────────────────────────────────────────────
+# Runs exactly _poll_batch_size iterations per recursive level.
+# No `when` here — the guard lives inside _poll_async_iteration.yml:
+# when _async_done is already true the entire block is skipped instantly,
+# so remaining items in the batch are sub-second no-ops.
+- name: "Poll iteration"
+  ansible.builtin.include_tasks: "{{ _poll_base_dir }}/_poll_async_iteration.yml"
+  loop: "{{ range(0, _poll_batch_size | int) | list }}"
+  loop_control:
+    loop_var: _poll_loop_index
+    label:    "{{ _poll_loop_index }}"
+
+# ── Outer recursion ─────────────────────────────────────────────────────────
+# Non-looped include_tasks re-evaluates `when` from the live host facts,
+# so _async_done set inside the batch is correctly seen here and the
+# recursion terminates immediately after the batch that detected completion.
+- name: "Continue to next batch"
+  ansible.builtin.include_tasks: "{{ _poll_self_path }}"
+  when:
+    - not (_async_done | default(false) | bool)
+    - (_poll_max | int == 0) or (_poll_n | int < _poll_max | int - 1)

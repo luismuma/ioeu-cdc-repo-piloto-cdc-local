@@ -1,0 +1,517 @@
+---
+# start_ogg.yml — Start an Oracle GoldenGate 26ai Microservices deployment.
+#
+# Three-play design:
+#   Play 0 (localhost)  — assert target_host + ogg_deployment, add_host into ogg_node group
+#   Play 1 (OGG node)   — verify EFS, version check, start Service Manager
+#   Play 2 (localhost)  — wait for deployment ready, start stopped processes via oggctl
+#                         Uses the same auth as all other automation (basic → Entra ID Bearer)
+#
+# Scenarios (same playbook — operator selects target node in AAP):
+#   Maintenance  : start on the same node after maintenance
+#   HA failover  : start on the passive node (SM was not running there)
+#   DR failover  : start on the DR node after EFS has been promoted to read-write by AWS
+#                  NOTE: EFS promotion is an AWS action that must happen before this playbook.
+#
+# AAP survey variables:
+#   target_host           — Hostname or IP of the OGG EC2 node to SSH into
+#                           (e.g. ogg-cdc-odb-ora-e01-aws-dev.internal)
+#   ogg_deployment        — Deployment key from inventory.yaml
+#                           (e.g. OGG_CDC_ODB_ORA_E01_AWS_DEV)
+#   ogg_skip_version_check — Set to true to bypass binary parity check (default: false)
+#
+# AAP credentials attached to the job template:
+#   Vault / AWS SM   — provides ogg_admin_password (basic auth fallback)
+#   AWS SM           — injects OGG_AUTH_PROFILE_CLIENT_SECRET (Entra ID Bearer)
+#   SSH              — access to the OGG EC2 node (Play 2)
+#
+# Local run example (maintenance scenario):
+#   ansible-playbook service-controller/ogg/start_ogg.yml \
+#     -e target_host=ogg-cdc-odb-ora-e01-aws-dev.internal \
+#     -e ogg_deployment=OGG_CDC_ODB_ORA_E01_AWS_DEV \
+#     -e @vault/ogg_passwords.yml --vault-password-file ~/.vault_pass
+
+
+# ── Play 0: Register target host in the in-memory inventory ──────────────────
+
+- name: Register OGG target node
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  pre_tasks:
+    - name: Assert required variables
+      ansible.builtin.assert:
+        that:
+          - target_host is defined and target_host | length > 0
+          - ogg_deployment is defined and ogg_deployment | length > 0
+        fail_msg: >-
+          Both target_host and ogg_deployment must be provided via the AAP survey
+          or --extra-vars.
+
+  tasks:
+    - name: Add OGG node to in-memory inventory
+      ansible.builtin.add_host:
+        name: "{{ target_host }}"
+        groups: ogg_node
+
+
+# ── Play 1: Verify EFS and start Service Manager on the OGG node (SSH) ───────
+
+- name: Start Service Manager
+  hosts: ogg_node
+  gather_facts: true
+
+  vars_files:
+    - vars/defaults.yml
+
+  tasks:
+
+    # ── Idempotency check ─────────────────────────────────────────────────────
+
+    - name: Check if Service Manager is already running
+      ansible.builtin.wait_for:
+        host: localhost
+        port: "{{ ogg_sm_port }}"
+        state: started
+        timeout: 3
+      register: _sm_check
+      ignore_errors: true
+
+    - name: Inform — Service Manager is already running
+      ansible.builtin.debug:
+        msg: >-
+          Service Manager on port {{ ogg_sm_port }} is already running on {{ inventory_hostname }}.
+          Skipping start. GoldenGate processes will be checked in the next play.
+      when: _sm_check is not failed
+
+    - name: End play — Service Manager is already running
+      ansible.builtin.meta: end_play
+      when: _sm_check is not failed
+
+    # ── Verify EFS is mounted and writable ────────────────────────────────────
+    # For DR failover the EFS must be promoted to read-write by AWS before this point.
+
+    - name: Check EFS mount point exists
+      ansible.builtin.stat:
+        path: "{{ ogg_deployment_home }}"
+      register: _efs_stat
+
+    - name: Fail if EFS mount point does not exist
+      ansible.builtin.fail:
+        msg: >-
+          EFS mount point {{ ogg_deployment_home }} does not exist or is not accessible.
+          For DR failover, ensure the EFS volume has been promoted to read-write mode
+          (AWS action) and mounted before running this playbook.
+      when: not _efs_stat.stat.exists
+
+    - name: Verify EFS is writable
+      ansible.builtin.tempfile:
+        path: "{{ ogg_deployment_home }}"
+        state: file
+        prefix: ".ogg_rw_check_"
+      register: _efs_rw_check
+      become: true
+      become_user: "{{ ogg_user }}"
+      failed_when: false
+
+    - name: Remove EFS write-test file
+      ansible.builtin.file:
+        path: "{{ _efs_rw_check.path }}"
+        state: absent
+      become: true
+      become_user: "{{ ogg_user }}"
+      when:
+        - _efs_rw_check is not failed
+        - _efs_rw_check.path is defined
+      ignore_errors: true
+
+    - name: Fail if EFS is read-only
+      ansible.builtin.fail:
+        msg: >-
+          EFS at {{ ogg_deployment_home }} is read-only.
+          For DR failover, promote the EFS volume to read-write (AWS action)
+          before running this playbook.
+      when: _efs_rw_check is failed
+
+    # ── Auto-discover instance paths from EFS ─────────────────────────────────
+
+    - name: Find deployment directory on EFS
+      ansible.builtin.find:
+        paths: "{{ ogg_deployment_home }}"
+        patterns: "{{ ogg_deployment }}"
+        file_type: directory
+        depth: 2
+      register: _dep_search
+
+    - name: Fail if deployment not found on EFS
+      ansible.builtin.fail:
+        msg: >-
+          Could not find '{{ ogg_deployment }}' under {{ ogg_deployment_home }}.
+          Verify the EFS is mounted correctly and the deployment name matches the OGG web UI.
+      when: _dep_search.files | length == 0
+
+    - name: Derive instance paths
+      ansible.builtin.set_fact:
+        instance_dir: "{{ _dep_search.files[0].path | dirname }}"
+        ogg_instance: "{{ _dep_search.files[0].path | dirname | basename }}"
+        _start_sm_script: "{{ _dep_search.files[0].path | dirname }}/ServiceManager/bin/startSM.sh"
+        _version_marker: "{{ _dep_search.files[0].path | dirname }}/ogg_version"
+
+    - name: Show discovered paths
+      ansible.builtin.debug:
+        msg:
+          ogg_instance: "{{ ogg_instance }}"
+          instance_dir: "{{ instance_dir }}"
+          start_script: "{{ _start_sm_script }}"
+
+    # ── Binary version parity check ───────────────────────────────────────────
+    # Compares the version written by stop_ogg.yml on the node that was stopped
+    # with the local binary on this node. A mismatch means both nodes are not
+    # running the same OGG build — fail to prevent split-brain data issues.
+    # Override: -e ogg_skip_version_check=true
+
+    - name: Read version marker from EFS
+      ansible.builtin.slurp:
+        src: "{{ _version_marker }}"
+      register: _marker_raw
+      ignore_errors: true
+
+    - name: Parse version marker fields
+      ansible.builtin.set_fact:
+        _marker_version: >-
+          {{ (_marker_raw.content | b64decode).split('\n') |
+             select('match', '^version=') | first | default('version=') |
+             replace('version=', '') | trim }}
+        _marker_hostname: >-
+          {{ (_marker_raw.content | b64decode).split('\n') |
+             select('match', '^hostname=') | first | default('hostname=') |
+             replace('hostname=', '') | trim }}
+        _marker_stopped_at: >-
+          {{ (_marker_raw.content | b64decode).split('\n') |
+             select('match', '^stopped_at=') | first | default('stopped_at=') |
+             replace('stopped_at=', '') | trim }}
+      when: _marker_raw is not failed
+
+    - name: Show version marker
+      ansible.builtin.debug:
+        msg:
+          stopped_on: "{{ _marker_hostname | default('N/A') }}"
+          stopped_at: "{{ _marker_stopped_at | default('N/A') }}"
+          marker_version: "{{ _marker_version | default('N/A') }}"
+      when: _marker_raw is not failed
+
+    - name: Warn if version marker is absent
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: No version marker found at {{ _version_marker }}.
+          Binary version parity cannot be verified. Proceeding without check.
+      when: _marker_raw is failed
+
+    - name: Get local OGG binary version
+      ansible.builtin.shell:
+        cmd: >-
+          {{ ogg_home }}/bin/adminclient -v 2>/dev/null |
+          grep '^Version' ||
+          echo "unknown"
+      register: _local_version
+      become: true
+      become_user: "{{ ogg_user }}"
+      changed_when: false
+      failed_when: false
+
+    - name: Fail on binary version mismatch
+      ansible.builtin.fail:
+        msg: >-
+          OGG binary version mismatch.
+          Stopped on '{{ _marker_hostname }}' with version: {{ _marker_version }}
+          Local binary on  '{{ ansible_hostname }}':  {{ _local_version.stdout | trim }}
+          Ensure both nodes run the same OGG binary version.
+          To override: -e ogg_skip_version_check=true
+      when:
+        - _marker_raw is not failed
+        - _local_version is not failed
+        - not (ogg_skip_version_check | bool)
+        - _marker_version | length > 0
+        - _local_version.stdout | trim | length > 0
+        - _marker_version != (_local_version.stdout | trim)
+
+    # ── Start the Service Manager ─────────────────────────────────────────────
+
+    - name: Verify SM start script exists on EFS
+      ansible.builtin.stat:
+        path: "{{ _start_sm_script }}"
+      register: _sm_script_stat
+
+    - name: Fail if SM start script is missing
+      ansible.builtin.fail:
+        msg: >-
+          Service Manager start script not found: {{ _start_sm_script }}.
+          Verify the EFS is mounted and the ServiceManager directory is intact.
+      when: not _sm_script_stat.stat.exists
+
+    - name: Start Service Manager (as {{ ogg_user }})
+      ansible.builtin.shell:
+        cmd: "{{ _start_sm_script }}"
+      become: true
+      become_user: "{{ ogg_user }}"
+      changed_when: true
+
+    - name: Wait for Service Manager port {{ ogg_sm_port }} to open
+      ansible.builtin.wait_for:
+        host: localhost
+        port: "{{ ogg_sm_port }}"
+        state: started
+        timeout: "{{ ogg_sm_start_timeout }}"
+
+    - name: Wait for Admin Service port {{ ogg_admin_port }} to open
+      ansible.builtin.wait_for:
+        host: localhost
+        port: "{{ ogg_admin_port }}"
+        state: started
+        timeout: 60
+
+
+# ── Play 2: Start GoldenGate processes via oggctl (from AAP execution node) ───
+
+- name: Start GoldenGate processes
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    - vars/defaults.yml
+
+  vars:
+    _venv: "{{ playbook_dir }}/../../.venv_cdc"
+    _oggctl: "{{ playbook_dir }}/../../ogg-ctl/oggctl.py"
+
+  pre_tasks:
+    - name: Install Python dependencies into .venv_cdc
+      ansible.builtin.pip:
+        requirements: "{{ playbook_dir }}/../../requirements.txt"
+        virtualenv: "{{ _venv }}"
+        virtualenv_command: python3 -m venv
+        state: present
+
+  tasks:
+
+    # ── Wait for the deployment to be ready before touching processes ─────────
+
+    - name: Wait for deployment to reach running state
+      ansible.builtin.command:
+        argv:
+          - "{{ _venv }}/bin/python3"
+          - "{{ _oggctl }}"
+          - deployment
+          - list
+          - --deployment
+          - "{{ ogg_deployment }}"
+          - --format
+          - json
+      register: _dep_list
+      until: >-
+        _dep_list.rc == 0 and
+        (_dep_list.stdout | from_json |
+         selectattr('name', 'equalto', ogg_deployment) |
+         selectattr('status', 'equalto', 'running') | list | length) > 0
+      retries: 30
+      delay: 10
+      changed_when: false
+      failed_when: false
+      no_log: true
+      environment:
+        OGG_ADMIN_PASSWORD: "{{ ogg_admin_password | default('') }}"
+
+    - name: Fail if deployment did not reach running state
+      ansible.builtin.fail:
+        msg: >-
+          Deployment '{{ ogg_deployment }}' did not reach running state after 5 minutes.
+          Check the Service Manager logs on the OGG node.
+      when: >-
+        _dep_list.rc != 0 or
+        (_dep_list.stdout | from_json |
+         selectattr('name', 'equalto', ogg_deployment) |
+         selectattr('status', 'equalto', 'running') | list | length) == 0
+
+    # ── Auth validation ───────────────────────────────────────────────────────
+    # SM is confirmed running at this point, so any failure here is a real
+    # auth problem — not a connection issue. No failed_when guard.
+
+    - name: Validate OGG API authentication
+      ansible.builtin.command:
+        argv:
+          - "{{ _venv }}/bin/python3"
+          - "{{ _oggctl }}"
+          - deployment
+          - check-auth
+          - --deployment
+          - "{{ ogg_deployment }}"
+      changed_when: false
+      environment:
+        OGG_ADMIN_PASSWORD: "{{ ogg_admin_password | default('') }}"
+
+    # ── Start stopped processes ───────────────────────────────────────────────
+    # Processes with managedProcessSettings.autoStart will already be running.
+    # This step starts any remaining stopped processes (autoStart disabled).
+    # Processes in abended state are left for the operator to investigate.
+
+    - name: List Extract processes
+      ansible.builtin.command:
+        argv:
+          - "{{ _venv }}/bin/python3"
+          - "{{ _oggctl }}"
+          - extract
+          - list
+          - --deployment
+          - "{{ ogg_deployment }}"
+          - --format
+          - json
+      register: _ext_list
+      changed_when: false
+      failed_when: false
+      no_log: true
+      environment:
+        OGG_ADMIN_PASSWORD: "{{ ogg_admin_password | default('') }}"
+
+    - name: Start stopped Extract processes
+      ansible.builtin.command:
+        argv:
+          - "{{ _venv }}/bin/python3"
+          - "{{ _oggctl }}"
+          - extract
+          - start
+          - "{{ item.name }}"
+          - --deployment
+          - "{{ ogg_deployment }}"
+      loop: >-
+        {{ (_ext_list.stdout | from_json)
+           | selectattr('status', 'equalto', 'stopped')
+           | list }}
+      loop_control:
+        label: "{{ item.name }}"
+      when: _ext_list.rc == 0
+      ignore_errors: true
+      no_log: true
+      environment:
+        OGG_ADMIN_PASSWORD: "{{ ogg_admin_password | default('') }}"
+
+    - name: List Replicat processes
+      ansible.builtin.command:
+        argv:
+          - "{{ _venv }}/bin/python3"
+          - "{{ _oggctl }}"
+          - replicat
+          - list
+          - --deployment
+          - "{{ ogg_deployment }}"
+          - --format
+          - json
+      register: _rep_list
+      changed_when: false
+      failed_when: false
+      no_log: true
+      environment:
+        OGG_ADMIN_PASSWORD: "{{ ogg_admin_password | default('') }}"
+
+    - name: Start stopped Replicat processes
+      ansible.builtin.command:
+        argv:
+          - "{{ _venv }}/bin/python3"
+          - "{{ _oggctl }}"
+          - replicat
+          - start
+          - "{{ item.name }}"
+          - --deployment
+          - "{{ ogg_deployment }}"
+      loop: >-
+        {{ (_rep_list.stdout | from_json)
+           | selectattr('status', 'equalto', 'stopped')
+           | list }}
+      loop_control:
+        label: "{{ item.name }}"
+      when: _rep_list.rc == 0
+      ignore_errors: true
+      no_log: true
+      environment:
+        OGG_ADMIN_PASSWORD: "{{ ogg_admin_password | default('') }}"
+
+    # ── Health check ──────────────────────────────────────────────────────────
+
+    - name: Final health check — list all processes
+      ansible.builtin.command:
+        argv:
+          - "{{ _venv }}/bin/python3"
+          - "{{ _oggctl }}"
+          - extract
+          - list
+          - --deployment
+          - "{{ ogg_deployment }}"
+          - --format
+          - json
+      register: _hc_ext
+      changed_when: false
+      failed_when: false
+      no_log: true
+      environment:
+        OGG_ADMIN_PASSWORD: "{{ ogg_admin_password | default('') }}"
+
+    - name: Final health check — list Replicats
+      ansible.builtin.command:
+        argv:
+          - "{{ _venv }}/bin/python3"
+          - "{{ _oggctl }}"
+          - replicat
+          - list
+          - --deployment
+          - "{{ ogg_deployment }}"
+          - --format
+          - json
+      register: _hc_rep
+      changed_when: false
+      failed_when: false
+      no_log: true
+      environment:
+        OGG_ADMIN_PASSWORD: "{{ ogg_admin_password | default('') }}"
+
+    - name: Show Extract process status
+      ansible.builtin.debug:
+        msg: "Extract {{ item.name }}: {{ item.status }}"
+      loop: "{{ (_hc_ext.stdout | from_json) if _hc_ext.rc == 0 else [] }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Show Replicat process status
+      ansible.builtin.debug:
+        msg: "Replicat {{ item.name }}: {{ item.status }}"
+      loop: "{{ (_hc_rep.stdout | from_json) if _hc_rep.rc == 0 else [] }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Warn about abended processes
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: The following processes are ABENDED and need investigation:
+          {{ _abended | join(', ') }}
+      vars:
+        _all_procs: >-
+          {{ ((_hc_ext.stdout | from_json) if _hc_ext.rc == 0 else []) +
+             ((_hc_rep.stdout | from_json) if _hc_rep.rc == 0 else []) }}
+        _abended: >-
+          {{ _all_procs | selectattr('status', 'equalto', 'abended') |
+             map(attribute='name') | list }}
+      when: >-
+        (((_hc_ext.stdout | from_json) if _hc_ext.rc == 0 else []) +
+         ((_hc_rep.stdout | from_json) if _hc_rep.rc == 0 else [])) |
+        selectattr('status', 'equalto', 'abended') | list | length > 0
+
+    - name: Start summary
+      ansible.builtin.debug:
+        msg:
+          deployment: "{{ ogg_deployment }}"
+          extracts: >-
+            {{ (_hc_ext.stdout | from_json | map(attribute='name') | list)
+               if _hc_ext.rc == 0 else [] }}
+          replicats: >-
+            {{ (_hc_rep.stdout | from_json | map(attribute='name') | list)
+               if _hc_rep.rc == 0 else [] }}

@@ -1,0 +1,140 @@
+---
+# Targets connections Inventory
+#
+# One entry per target system (key = <TARGET_NAME>_<ENV>). Each entry holds the
+# infrastructure-level info needed to connect to the target (Confluent Kafka cluster,
+# AWS S3 bucket, etc.) — credentials are NOT stored here, only references (aliases)
+# to entries in the OGG wallet / external credential store.
+# The replication JSON input references one of these entries via the field
+# 'target_name' (e.g. "target_name": "KAFKA_GR_DEV"). If absent, a key is derived
+# from <PROJECT>_<TARGET_ENGINE>_<ENV>.
+#
+# 'defaults' values are merged into every entry; per-entry values override the default.
+
+defaults:
+  aws_region:                "eu-west-1"
+  oauth_endpoint_url:        "https://login.microsoftonline.com/93ad25dd-8cdc-4066-9727-31a8a3024f80/oauth2/v2.0/token"
+  initial_load_parallel:     "8"
+  initial_load_maxthreads:   "4"
+
+
+#### CONFLUENT KAFKA :
+# ── POC/Development/Integration (DEV) ────────────────────────────────────────────────────────────
+KAFKA_PILOTO_01_DEV:
+  env:                       "DEV"
+  target_engine:             "KAFKA"
+  cluster_name:              "IClusterPEI"
+  cluster_id:                "lkc-mr7wq7"
+  bootstrap_servers:         "pkc-z9doz.eu-west-1.aws.confluent.cloud:9092"
+  schema_registry_url:       "https://psrc-z6m8p6p.eu-west-1.aws.confluent.cloud"
+  schema_registry_id:        "lsrc-y7q3no"
+  security_protocol:         "SASL_SSL"
+  sasl_mechanism:            "OAUTHBEARER"
+  identity_pool:             "pool-y95PX"
+  api_scope:                 "api://b23a6a01-cd61-4619-9f1b-39de3e9b2a27/.default"
+  client_id:                 "b23a6a01-cd61-4619-9f1b-39de3e9b2a27"
+  client_secret_credential:  "KAFKA_PILOTO_01_SECRET_DEV"
+  ogg_alias_credential:      "KAFKA_PILOTO_01_DEV"
+
+KAFKA_GR_CANALES_CLIENTES_01_DEV:
+  env:                       "DEV"
+  target_engine:             "KAFKA"
+  cluster_name:              "IClusterPEI"
+  cluster_id:                "lkc-mr7wq7"
+  bootstrap_servers:         "pkc-z9doz.eu-west-1.aws.confluent.cloud:9092"
+  schema_registry_url:       "https://psrc-z6m8p6p.eu-west-1.aws.confluent.cloud"
+  schema_registry_id:        "lsrc-y7q3no"
+  security_protocol:         "SASL_SSL"
+  sasl_mechanism:            "OAUTHBEARER"
+  identity_pool:             "pool-qBk96"
+  api_scope:                 "api://ec814a85-ba59-47a1-ab46-cabf139efc46/.default"
+  client_id:                 "ec814a85-ba59-47a1-ab46-cabf139efc46"
+  client_secret_credential:  "KAFKA_GR_CANALES_CLIENTES_01_SECRET_DEV"
+  ogg_alias_credential:      "KAFKA_GR_CAC_01_DEV"
+
+# ── Preproduction (PRE) ──────────────────────────────────────────────────────────────────────────
+KAFKA_PILOTO_01_PRE:
+  env:                       "PRE"
+  target_engine:             "KAFKA"
+  cluster_name:              "PClusterPEI"
+  cluster_id:                "lkc-x1918q"
+  bootstrap_servers:         "lkc-x1918q.domqwxv239g.eu-west-1.aws.confluent.cloud:9092"
+  schema_registry_url:       "https://lsrc-5kddxn.domqwxv239g.eu-west-1.aws.confluent.cloud"
+  schema_registry_id:        "lsrc-5kddxn"
+  security_protocol:         "SASL_SSL"
+  sasl_mechanism:            "OAUTHBEARER"
+  identity_pool:             "pool-lbGAr"
+  api_scope:                 "api://b23a6a01-cd61-4619-9f1b-39de3e9b2a27/.default"
+  client_id:                 "b23a6a01-cd61-4619-9f1b-39de3e9b2a27"
+  client_secret_credential:  "KAFKA_CLIENT_SECRET"
+  ogg_alias_credential:      ""
+
+
+KAFKA_GR_CANALES_CLIENTES_01_PRE:
+  env:                       "PRE"
+  target_engine:             "KAFKA"
+  cluster_name:              "PClusterPEI"
+  cluster_id:                "lkc-x1918q"
+  bootstrap_servers:         "lkc-x1918q.domqwxv239g.eu-west-1.aws.confluent.cloud:9092"
+  schema_registry_url:       "https://lsrc-5kddxn.domqwxv239g.eu-west-1.aws.confluent.cloud"
+  schema_registry_id:        "lsrc-5kddxn"
+  security_protocol:         "SASL_SSL"
+  sasl_mechanism:            "OAUTHBEARER"
+  identity_pool:             "pool-Mp8x9"
+  api_scope:                 "api://45c8cc45-56d6-4915-9409-6e3f785fa3b3/.default"
+  client_id:                 "45c8cc45-56d6-4915-9409-6e3f785fa3b3"
+  client_secret_credential:  "KAFKA_GR_CANALES_CLIENTES_01_SECRET_PRE"
+  ogg_alias_credential:      "KAFKA_GR_CAC_01_PRE"
+
+# ── Production (PRO-REAL) ────────────────────────────────────────────────────────────────────────
+KAFKA_GR_CANALES_CLIENTES_01_PRO:
+  env:                       "PRO"
+  target_engine:             "KAFKA"
+  cluster_name:              ""
+  cluster_id:                ""
+  bootstrap_servers:         ""
+  schema_registry_url:       ""
+  schema_registry_id:        ""
+  security_protocol:         "SASL_SSL"
+  sasl_mechanism:            "OAUTHBEARER"
+  identity_pool:             ""
+  api_scope:                 "api://<client_id>/.default"
+  client_id:                 ""
+  client_secret_credential:  "KAFKA_GR_CANALES_CLIENTES_01_SECRET_PRO"
+  ogg_alias_credential:      "KAFKA_GR_CAC_01_PRO"
+
+
+#### AWS-S3 :
+# ── POC/Development/Integration (DEV) ────────────────────────────────────────────────────────────
+
+# ── Preproduction (PRE) ──────────────────────────────────────────────────────────────────────────
+S3_DA_PRE:
+  env:                              "PRE"
+  target_engine:                    "AWS-S3"
+  s3_bucket_name:                   "s3-cross-data-pre-ateneaes-mapfrees-origin-daia"
+  s3_bucket_path:                   "golden_gate/es/mapfrees"
+  aws_account_id:                   "353548850893"
+  aws_region:                       "eu-west-1"
+  sts_assume_role:                  "arn:aws:iam::353548850893:role/role-data-ateneaes-mapfrees-golden-gate-s3-integration"
+  sts_session_name:                 "ogg-pre-session"
+  aws_access_key_id:                "AKIAVEUJHK3GROX44VFS"
+  aws_secret_access_key_credential: "AWS_SECRET_ACCESS_KEY_PRE"
+  ogg_alias_credential:             "S3_OAUTH_01_PRE"
+  initial_load_parallel:            "10"
+  initial_load_maxthreads:          "4"
+
+# ── Production (PRO-REAL) ────────────────────────────────────────────────────────────────────────
+S3_DA_PRO:
+  env:                              "PRO"
+  target_engine:                    "AWS-S3"
+  s3_bucket_name:                   "s3-cross-data-ateneaes-mapfrees-origin-daia"
+  s3_bucket_path:                   "golden_gate/es/mapfrees"
+  aws_account_id:                   "089994312240"
+  aws_region:                       "eu-west-1"
+  sts_assume_role:                  "arn:aws:iam::089994312240:role/role-data-ateneaes-mapfrees-golden-gate-s3-integration"
+  sts_session_name:                 "ogg-pro-session"
+  aws_access_key_id:                "AKIARJ5AUHIYEI3DCRSJ"
+  aws_secret_access_key_credential: "S3_DATAIA_BUCKET_01_SECRET_PRO"
+  ogg_alias_credential:             "S3_OAUTH_01_PRO"
+  initial_load_parallel:            "10"
+  initial_load_maxthreads:          "4"

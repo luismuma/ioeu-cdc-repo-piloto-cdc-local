@@ -1,0 +1,50 @@
+# Properties file for Replicat {{ replicat_name }}
+
+gg.target=s3
+gg.format=parquet
+
+# Region and AWS S3 Bucket
+gg.eventhandler.s3.region={{ aws_region | default('eu-west-1') }}
+gg.eventhandler.s3.bucketMappingTemplate={{ s3_bucket_name }}
+
+# Set STS Roles
+gg.eventhandler.s3.enableSTS=true
+gg.eventhandler.s3.STSAssumeRole={{ s3_sts_assume_role }}
+gg.eventhandler.s3.STSAssumeRoleSessionName={{ s3_sts_session_name }}
+
+# Credentials API Key — referenced from the OGG credential store (Oracle Wallet).
+gg.eventhandler.s3.accessKeyId=ORACLEWALLETUSERNAME[{{ s3_credentials_alias }} {{ s3_credentials_domain | default('OracleGoldenGate') }}]
+gg.eventhandler.s3.secretKey=ORACLEWALLETPASSWORD[{{ s3_credentials_alias }} {{ s3_credentials_domain | default('OracleGoldenGate') }}]
+
+# Path AWS S3 Bucket
+gg.eventhandler.s3.pathMappingTemplate={{ bucket_path_prefix }}/${schemaName}/${tableName}/
+gg.eventhandler.s3.fileNameMappingTemplate=${schemaName}.${tableName}_${currentTimestamp}.parquet
+gg.eventhandler.s3.finalizeAction=none
+gg.eventhandler.s3.enableBucketAdmin=false
+
+# Handling updates (required as all columns are being sent now)
+# pkUpdateHandling does not apply for initial load
+gg.handler.s3.format.pkUpdateHandling=update
+
+# Staging area for parquet before upload to S3
+gg.handler.s3.pathMappingTemplate={{ ogg_staging_root | default('/u01/ogg/data_staging') }}/stage/{{ database }}/${schemaName}/${tableName}
+gg.eventhandler.parquet.pathMappingTemplate={{ ogg_staging_root | default('/u01/ogg/data_staging') }}/parquet/{{ database }}/${schemaName}/${tableName}
+gg.eventhandler.parquet.finalizeAction=delete
+
+# Allocate more JVM heap for the Parquet conversion
+# Increase boot options (tune per footprint/GC):
+jvm.bootoptions=-Xms512m -Xmx2048m
+
+# Set metacolumnsTemplate
+gg.handler.s3.format.metaColumnsTemplate=\
+${objectname[table]},\
+${optype[op_type]},\
+${timestamp[op_ts]},\
+${currenttimestamp[current_ts]},\
+${csn[event_csn]},\
+${opseqno[op_seq]},\
+${position[pos]}, \
+${xid[xid]}
+
+# Set Classpath
+gg.classpath=/u01/ogg/dependencies/s3_2.28.11/*:/u01/ogg/dependencies/hadoop_3.1.1/*:/u01/ogg/dependencies/parquet_1.12.2/*

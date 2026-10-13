@@ -1,0 +1,1581 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Oracle GoldenGate · Informe Diario · {{ date_str }}</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Calibri, Arial, sans-serif; font-size: 13px; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+  .page { max-width: 1600px; margin: 0 auto; padding: 0 0 60px; }
+
+  /* ── Header ── */
+  .top-header { background: linear-gradient(135deg,#0f172a 0%,#1e3a5f 100%); border-bottom: 3px solid #0891b2; padding: 28px 40px 24px; display: flex; align-items: flex-end; justify-content: space-between; }
+  .top-header h1 { font-size: 32px; font-weight: 700; color: #fff; letter-spacing: -0.5px; }
+  .top-header .subtitle { font-size: 13px; color: #0891b2; letter-spacing: 3px; text-transform: uppercase; margin-top: 4px; }
+  .top-header .date-pill { background: #0891b2; color: #fff; font-weight: 700; padding: 6px 18px; border-radius: 20px; font-size: 13px; white-space: nowrap; }
+
+  /* ── Nav ── */
+  .nav { background: #1e2d42; display: flex; border-bottom: 1px solid #334155; padding: 0 40px; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+  .nav-tab { padding: 14px 22px; cursor: pointer; color: #94a3b8; font-weight: 600; font-size: 13px; border-bottom: 3px solid transparent; transition: all .15s; white-space: nowrap; user-select: none; }
+  .nav-tab:hover { color: #e2e8f0; }
+  .nav-tab.active { color: #0891b2; border-bottom-color: #0891b2; }
+
+  /* ── Panes ── */
+  .tab-pane { display: none; padding: 32px 40px; }
+  .tab-pane.active { display: block; }
+
+  /* ── Section header ── */
+  .section-header { font-size: 16px; font-weight: 700; color: #e2e8f0; margin: 0 0 16px; display: flex; align-items: center; gap: 12px; }
+  .section-meta { font-size: 11px; font-weight: 400; color: #64748b; }
+
+  /* ── KPI grid ── */
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, 280px); gap: 16px; margin-bottom: 32px; justify-content: start; }
+  .kpi-card { background: #162032; border-radius: 8px; padding: 20px 16px; border: 2px solid; text-align: center; }
+  .kpi-val   { font-size: 38px; font-weight: 700; line-height: 1; }
+  .kpi-label { font-size: 12px; font-weight: 600; color: #e2e8f0; margin-top: 8px; }
+  .kpi-sub   { font-size: 10px; color: #64748b; margin-top: 4px; }
+  .kpi-green { border-color: #059669; } .kpi-green .kpi-val { color: #059669; }
+  .kpi-amber { border-color: #d97706; } .kpi-amber .kpi-val { color: #d97706; }
+
+  /* ── Tooltips ── */
+  .tooltip-tipo { cursor: help; border-bottom: 1px dashed #64748b; }
+  .tooltip-info { cursor: help; }
+  #tt {
+    position: fixed; z-index: 9999; pointer-events: none;
+    background: #1e3a5f; color: #e2e8f0; font-size: 11px; font-weight: 400;
+    padding: 6px 10px; border-radius: 6px; white-space: nowrap;
+    border: 1px solid #334155; box-shadow: 0 4px 12px rgba(0,0,0,.4);
+    opacity: 0; transition: opacity .15s;
+  }
+
+  /* ── Alert banner ── */
+  .alert-banner { background: #fef2f2; color: #dc2626; border: 1px solid #dc2626; border-radius: 6px; padding: 10px 16px; font-weight: 700; font-size: 12px; margin-bottom: 24px; }
+
+  /* ── Tables ── */
+  .table-wrap { overflow-x: auto; border-radius: 8px; border: 1px solid #1e3a5f; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; white-space: nowrap; }
+  /* Description column: fixed max-width with ellipsis; full text shown on hover via title attr */
+  .col-desc { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Tabla name column in tablesTable */
+  #tablesTable td:first-child { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  thead tr { background: #1e3a5f; }
+  thead th { padding: 10px 12px; text-align: left; font-weight: 700; color: #e2e8f0; white-space: nowrap; border-right: 1px solid #264a73; }
+  #procsTable thead th, #tablesTable thead th { cursor: pointer; user-select: none; }
+  #procsTable thead th:hover, #tablesTable thead th:hover { background: #264a73; }
+  .sort-icon { margin-left: 5px; font-size: 10px; color: #0891b2; opacity: 0; transition: opacity .15s; }
+  .th-sort-asc .sort-icon, .th-sort-desc .sort-icon { opacity: 1; }
+  .th-sort-asc  .sort-icon::after { content: '▲'; }
+  .th-sort-desc .sort-icon::after { content: '▼'; }
+  thead th:last-child { border-right: none; }
+  tbody tr { border-bottom: 1px solid #1e2d42; transition: background .1s; }
+  tbody tr:hover { background: #1e2d42 !important; }
+  tbody td { padding: 7px 12px; vertical-align: middle; border-right: 1px solid #1a2840; }
+  tbody td:last-child { border-right: none; }
+  tbody tr:nth-child(even) { background: #111d2e; }
+  .row-pre { border-left: 3px solid #9333ea; }
+  .row-pro { border-left: 3px solid #1d4ed8; }
+  .tr-hidden { display: none !important; }
+
+  /* ── Badges ── */
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+  .badge-running                { background: #065f46; color: #6ee7b7; }
+  .badge-stopped                { background: #78350f; color: #fcd34d; }
+  .badge-abended, .badge-killed { background: #7f1d1d; color: #fca5a5; }
+  .badge-pending                { background: #1e3a5f; color: #7dd3fc; border: 1px solid #0891b2; }
+  .badge-dev                    { background: #065f46; color: #6ee7b7; }
+  .badge-pre                    { background: #581c87; color: #d8b4fe; }
+  .badge-pro                    { background: #1e3a8a; color: #93c5fd; }
+  .badge-extractor,
+  .badge-replicator             { background: #134e4a; color: #5eead4; }
+  .badge-tag  { display: inline-block; padding: 1px 6px; border-radius: 10px; font-size: 10px; font-weight: 600; white-space: nowrap; background: #1e3a5f; color: #7dd3fc; border: 1px solid #0891b2; }
+  .badge-cc   { background: #1a2e1a; color: #86efac; border-color: #16a34a; }
+
+  /* ── Deployment cards ── */
+  .dep-grid  { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .dep-card  { background: #111d2e; border-radius: 8px; border: 1px solid #1e3a5f; overflow: hidden; }
+  .dep-top-band { height: 5px; }
+  .band-running { background: #059669; }
+  .band-stopped { background: #d97706; }
+  .band-abended { background: #dc2626; }
+  .dep-header   { display: flex; justify-content: space-between; align-items: flex-start; padding: 14px 16px 8px; }
+  .dep-title    { font-size: 13px; font-weight: 700; color: #e2e8f0; font-family: 'Consolas', monospace; }
+  .dep-depname  { font-size: 11px; color: #64748b; margin-top: 2px; font-family: 'Consolas', monospace; }
+  .dep-role-badges { margin-top: 6px; display: flex; gap: 4px; flex-wrap: wrap; }
+  .dep-services { padding: 8px 16px 10px; font-size: 12px; color: #94a3b8; border-bottom: 1px solid #1e3a5f; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+  .dep-svc-label { font-weight: 600; margin-right: 4px; white-space: nowrap; }
+  .svc-item     { display: inline-flex; align-items: center; gap: 4px; background: #1e2d42; border-radius: 4px; padding: 2px 7px; font-size: 11px; }
+  .proc-group   { padding: 10px 16px; border-bottom: 1px solid #1a2840; }
+  .proc-group:last-child { border-bottom: none; }
+  .proc-group-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+  .proc-tipo  { font-size: 11px; font-weight: 700; color: #94a3b8; background: #1e2d42; padding: 2px 8px; border-radius: 4px; }
+  .proc-pills { display: flex; gap: 4px; flex-wrap: wrap; }
+  .proc-names { font-size: 11px; line-height: 1.8; }
+
+  /* ── Filter bar ── */
+  .filter-bar { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .filter-bar input, .filter-bar select { background: #1e2d42; border: 1px solid #334155; color: #e2e8f0; border-radius: 6px; padding: 7px 12px; font-size: 12px; outline: none; }
+  .filter-bar input { flex: 1; min-width: 200px; }
+  .filter-bar input:focus, .filter-bar select:focus { border-color: #0891b2; }
+  .btn-export { background: #0c4a6e; border: 1px solid #0891b2; color: #7dd3fc; border-radius: 6px;
+                padding: 7px 14px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+  .btn-export:hover { background: #0891b2; color: #fff; }
+
+  /* ── Carga Inicial progress bars ── */
+  .ini-progress-wrap { background: #1e3a5f; border-radius: 4px; height: 8px; width: 100%; min-width: 80px; overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 4px; }
+  .ini-progress-fill { background: linear-gradient(90deg, #0891b2, #06b6d4); height: 100%; border-radius: 4px; transition: width .3s; }
+
+  /* ── Stats mode toggle ── */
+  .toggle-group { display: inline-flex; border: 1px solid #334155; border-radius: 6px; overflow: hidden; white-space: nowrap; }
+  .toggle-btn { background: #1e2d42; color: #94a3b8; border: none; padding: 7px 16px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s; }
+  .toggle-btn:hover { background: #263a52; color: #e2e8f0; }
+  .toggle-btn.active { background: #0891b2; color: #fff; }
+  .badge-dev-btn.active { background: #065f46 !important; color: #6ee7b7 !important; }
+  .badge-pre-btn.active { background: #581c87 !important; color: #d8b4fe !important; }
+  .badge-pro-btn.active { background: #1e3a8a !important; color: #93c5fd !important; }
+
+  /* ── Grupo global filter bar ── */
+  .grupo-bar { background: #162032; border-bottom: 1px solid #1e3a5f; padding: 10px 40px; display: flex; align-items: center; gap: 12px; position: sticky; top: 47px; z-index: 99; }
+  .grupo-bar-label { font-size: 12px; font-weight: 600; color: #94a3b8; letter-spacing: 0.5px; }
+  .grupo-bar .toggle-btn.grupo-online.active      { background: #0d9488; color: #fff; }
+  .grupo-bar .toggle-btn.grupo-initialload.active { background: #d97706; color: #fff; }
+
+  body.grupo-Online      [data-grupo]:not([data-grupo="Online"])      { display: none !important; }
+  body.grupo-InitialLoad [data-grupo]:not([data-grupo="InitialLoad"]) { display: none !important; }
+  body.env-DEV [data-env]:not([data-env~="DEV"]) { display: none !important; }
+  body.env-PRE [data-env]:not([data-env~="PRE"]) { display: none !important; }
+  body.env-PRO [data-env]:not([data-env~="PRO"]) { display: none !important; }
+
+  /* ── Utilities ── */
+  .text-muted  { color: #64748b; }
+  .text-green  { color: #059669; }
+  .text-red    { color: #dc2626; }
+  .text-amber  { color: #d97706; font-weight: 600; }
+  .text-teal   { color: #0891b2; font-weight: 600; }
+  .text-purple { color: #7c3aed; font-weight: 600; }
+  .mono  { font-family: 'Consolas', monospace; font-size: 11px; }
+  .small { font-size: 11px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: middle; }
+  .dot-green { background: #059669; }
+  .dot-amber { background: #d97706; }
+  .lag-red   { color: #dc2626; font-weight: 700; }
+  .lag-amber { color: #d97706; font-weight: 700; }
+
+  /* ── Consumo tab ── */
+  .consumo-bar-wrap { background: #1e3a5f; border-radius: 3px; height: 6px; display: inline-block; vertical-align: middle; overflow: hidden; }
+  .consumo-bar-fill { height: 100%; border-radius: 3px; }
+  .fill-teal   { background: #0891b2; }
+  .fill-purple { background: #7c3aed; }
+  .fill-amber  { background: #d97706; }
+  .fill-green  { background: #059669; }
+  .fill-gray   { background: #475569; }
+  .team-unattr td { color: #64748b !important; font-style: italic; }
+  .env-breakdown-header { font-size: 12px; font-weight: 700; color: #94a3b8; margin: 24px 0 10px;
+                          letter-spacing: 0.5px; text-transform: uppercase; }
+  /* ── Consumo donut charts ── */
+  .consumo-charts-row { display:flex; gap:0; flex-wrap:wrap; background:#1e293b; border:1px solid #334155; border-radius:10px; margin-bottom:28px; overflow:hidden; }
+  .donut-widget { display:flex; align-items:center; gap:18px; flex:1; min-width:220px; padding:22px 24px; }
+  .donut-widget + .donut-widget { border-left:1px solid #334155; }
+  .donut-wrap { position:relative; flex-shrink:0; }
+  .donut-center { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; pointer-events:none; }
+  .donut-center-val { font-size:18px; font-weight:700; color:#e2e8f0; line-height:1; }
+  .donut-center-lbl { font-size:10px; color:#64748b; text-transform:uppercase; letter-spacing:.04em; margin-top:3px; }
+  .donut-info { display:flex; flex-direction:column; gap:2px; min-width:0; }
+  .donut-legend-title { font-size:11px; font-weight:600; color:#94a3b8; margin-bottom:6px; text-transform:uppercase; letter-spacing:.04em; }
+  .donut-legend-row { display:flex; align-items:center; gap:6px; font-size:11px; padding:2px 0; }
+  .donut-legend-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .donut-legend-name { color:#cbd5e1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100px; }
+  .donut-legend-val { margin-left:auto; color:#64748b; white-space:nowrap; padding-left:6px; }
+  .donut-legend-pct { min-width:34px; text-align:right; color:#94a3b8; }
+
+  /* ── Footer ── */
+  .footer { text-align: center; padding: 20px; color: #ffffff; font-size: 11px; border-top: 1px solid #1e2d42; }
+
+  @media (max-width: 1100px) { .dep-grid { grid-template-columns: 1fr; } }
+  @media (max-width: 900px) {
+    .top-header { flex-direction: column; gap: 12px; align-items: flex-start; }
+    .nav { padding: 0 16px; overflow-x: auto; }
+    .tab-pane { padding: 20px 16px; }
+  }
+</style>
+</head>
+<body>
+
+{# ── Macros ───────────────────────────────────────────────────────────────── #}
+{%- set STATUS_CLS = {"RUNNING":"running","STOPPED":"stopped","ABENDED":"abended","KILLED":"abended","UNREACHABLE":"abended","OK":"running","PENDING":"pending"} -%}
+{%- set OVERALL_CLS = {"OK":"running","WARNING":"stopped","ERROR":"abended","ALERT":"stopped","CRITICAL":"abended"} -%}
+
+{%- macro status_badge(estado) -%}
+<span class="badge badge-{{ STATUS_CLS.get(estado, 'stopped') }}">{{ estado }}</span>
+{%- endmacro -%}
+
+{%- macro env_badge(env) -%}
+<span class="badge badge-{{ env | lower }}">{{ env }}</span>
+{%- endmacro -%}
+
+{%- macro overall_badge(ov) -%}
+<span class="badge badge-{{ OVERALL_CLS.get(ov, 'stopped') }}">{{ ov }}</span>
+{%- endmacro -%}
+
+<div id="tt"></div>
+<div class="page">
+
+  <div class="top-header">
+    <div>
+      <h1>Oracle GoldenGate</h1>
+      <div class="subtitle">Informe Diario de Estado</div>
+    </div>
+    <div class="date-pill">📅 {{ date_str }}</div>
+  </div>
+
+  <nav class="nav">
+    <div class="nav-tab active"  onclick="showTab(event,'resumen')">🖧 Infraestructura</div>
+    <div class="nav-tab"         onclick="showTab(event,'deployments')">🖥 Deployments</div>
+    <div class="nav-tab"         onclick="showTab(event,'procesos')">⚙ Procesos (<span id="count-procesos">{{ total_procs }}</span>)</div>
+    <div class="nav-tab"         onclick="showTab(event,'tablas')">📋 Tablas (<span id="count-tablas">{{ total_tables }}</span>)</div>
+    {% set _ini_total = (ini_load_data.extracts | length) + (ini_load_data.replicats | length) %}
+    {% if _ini_total %}<div class="nav-tab" onclick="showTab(event,'ini')">⏳ Carga Inicial ({{ _ini_total }})</div>{% endif %}
+    {% if team_summary.by_team %}<div class="nav-tab" onclick="showTab(event,'consumo')">📊 Consumo ({{ team_summary.by_team | length }})</div>{% endif %}
+  </nav>
+
+  <div class="grupo-bar">
+    <span class="grupo-bar-label">PROYECTO:</span>
+    <div class="toggle-group" id="grupoToggle">
+      <button class="toggle-btn active"              onclick="setGrupoGlobal(this,'')">Todos</button>
+      <button class="toggle-btn grupo-online"        onclick="setGrupoGlobal(this,'Online')">Online</button>
+      <button class="toggle-btn grupo-initialload"   onclick="setGrupoGlobal(this,'InitialLoad')">InitialLoad</button>
+    </div>
+    <span class="grupo-bar-label" style="margin-left:24px;">ENTORNO:</span>
+    <div class="toggle-group" id="envGlobalToggle">
+      <button class="toggle-btn active"       onclick="setEnvGlobal(this,'')">Todos</button>
+      <button class="toggle-btn badge-dev-btn" onclick="setEnvGlobal(this,'DEV')">DEV</button>
+      <button class="toggle-btn badge-pre-btn" onclick="setEnvGlobal(this,'PRE')">PRE</button>
+      <button class="toggle-btn badge-pro-btn" onclick="setEnvGlobal(this,'PRO')">PRO</button>
+    </div>
+  </div>
+
+  {# ════════════════════════════════════════════════════════════════════════════
+     TAB: INFRAESTRUCTURA
+  ═══════════════════════════════════════════════════════════════════════════ #}
+  <div id="tab-resumen" class="tab-pane active">
+
+    {# Alert banner #}
+    {% if kpis.unreachable_hosts %}
+    <div class="alert-banner">
+      ⚠ HOST INACCESIBLE: <strong>{{ kpis.unreachable_hosts | join(', ') }}</strong>
+    </div>
+    {% endif %}
+
+    {# KPI cards #}
+    <div class="kpi-grid">
+      {% for grupo_label in ["Online", "InitialLoad"] %}
+        {% set hg = hosts | selectattr("grupo", "equalto", grupo_label) | list %}
+        {% if hg %}
+          {% set unreach = hg | selectattr("estado", "equalto", "UNREACHABLE") | list %}
+          {% set ok_count = hg | length - unreach | length %}
+          {% set cls = "kpi-green" if not unreach else "kpi-amber" %}
+          {% set sub = "Todos accesibles ✓" if not unreach else (unreach | length | string + " UNREACHABLE") %}
+          <div class="kpi-card {{ cls }}" data-grupo="{{ grupo_label }}">
+            <div class="kpi-val">{{ ok_count }} / {{ hg | length }}</div>
+            <div class="kpi-label">Hosts {{ grupo_label }}</div>
+            <div class="kpi-sub">{{ sub }}</div>
+          </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+
+    {# Hosts table #}
+    <div class="section-header">Estado de Hosts</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Host</th>
+          <th>Deployment(s)</th>
+          <th>Entorno</th>
+          <th>Errores 24h</th>
+          <th>Estado</th>
+        </tr></thead>
+        <tbody>
+          {% for h in hosts %}
+          {% set env_attr = h.envs | join(' ') %}
+          {% set host_overall = "UNREACHABLE" if h.estado == "UNREACHABLE" else "RUNNING" %}
+          <tr data-grupo="{{ h.grupo }}" data-env="{{ env_attr }}">
+            <td><strong>{{ h.host }}</strong></td>
+            <td class="mono small">
+              {% if h.deps %}{{ h.deps | join('<br>') }}{% else %}—{% endif %}
+            </td>
+            <td>
+              {% if h.envs %}
+                {% for e in h.envs %}{{ env_badge(e) }} {% endfor %}
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              {% set _tt = "Número de líneas de error en el fichero ggserr.log en las últimas 24 horas (o desde que ha rotado el fichero)" %}
+              {% if h.errors_24h > 0 %}
+                <span class="badge badge-abended tooltip-info" data-tooltip="{{ _tt }}">⚠ {{ h.errors_24h }}</span>
+              {% else %}
+                <span class="text-muted tooltip-info" data-tooltip="{{ _tt }}">0</span>
+              {% endif %}
+            </td>
+            <td>{{ status_badge(host_overall) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>{# /tab-resumen #}
+
+  {# ════════════════════════════════════════════════════════════════════════════
+     TAB: DEPLOYMENTS
+  ═══════════════════════════════════════════════════════════════════════════ #}
+  <div id="tab-deployments" class="tab-pane">
+    <div class="section-header">Estado de Deployments</div>
+    <div class="dep-grid">
+      {% for dep_name in dep_order %}
+      {% set d = deployments[dep_name] %}
+      {% set oc_cls = OVERALL_CLS.get(d.overall, 'stopped') %}
+      {% set is_ext = d.role_base == "Extractor" %}
+      {% set fixed_types = ["EXTR_CDC","EXTR_INI","DIST_PATH"] if is_ext else ["REPL_CDC","REPL_INI","RCVR_PATH"] %}
+
+      <div class="dep-card" data-grupo="{{ d.grupo }}" data-env="{{ d.env }}">
+        <div class="dep-top-band band-{{ oc_cls }}"></div>
+        <div class="dep-header">
+          <div>
+            <div class="dep-title mono-title">{{ dep_name }}</div>
+            <div class="dep-depname">{{ d.host }}</div>
+            <div class="dep-role-badges">
+              <span class="badge badge-{{ d.role_base | lower }}">{{ d.role_base | upper }}</span>
+              {% if d.env and d.env != "—" %}{{ env_badge(d.env) }}{% endif %}
+              {% if d.errors_24h > 0 %}
+                <span class="badge badge-abended tooltip-info"
+                      data-tooltip="Número de líneas de error en ggserr.log en las últimas 24h">⚠ {{ d.errors_24h }} errores 24h</span>
+              {% endif %}
+            </div>
+          </div>
+          {{ overall_badge(d.overall) }}
+        </div>
+
+        {# Services #}
+        <div class="dep-services">
+          <span class="dep-svc-label">Servicios:</span>
+          {% if d.services %}
+            {% for svc in d.services %}
+              {% set dot_cls = "dot-green" if svc.estado == "RUNNING" else "dot-amber" %}
+              <span class="svc-item"><span class="dot {{ dot_cls }}"></span> {{ svc.name }}</span>
+            {% endfor %}
+          {% else %}—{% endif %}
+        </div>
+
+        {# Process groups #}
+        {% for tipo in fixed_types %}
+          {% set g = d.groups.get(tipo, {"running":0,"stopped":0,"abended":0,"killed":0,"names":[]}) %}
+          <div class="proc-group">
+            <div class="proc-group-header">
+              <span class="proc-tipo tooltip-tipo" data-tipo="{{ tipo }}">{{ tipo }}</span>
+              <span class="proc-pills">
+                {% if g.running > 0 %}<span class="badge badge-running">{{ g.running }} running</span> {% endif %}
+                {% if g.stopped > 0 %}<span class="badge badge-stopped">{{ g.stopped }} stopped</span> {% endif %}
+                {% if g.abended > 0 %}<span class="badge badge-abended">{{ g.abended }} abended</span> {% endif %}
+                {% if g.killed  > 0 %}<span class="badge badge-abended">{{ g.killed  }} killed</span>  {% endif %}
+                {% if g.running == 0 and g.stopped == 0 and g.abended == 0 and g.killed == 0 %}
+                  <span class="text-muted small">0 procesos</span>
+                {% endif %}
+              </span>
+            </div>
+            <div class="proc-names text-muted">
+              {% set NAME_COLORS = {"RUNNING":"#6ee7b7","STOPPED":"#fcd34d","ABENDED":"#fca5a5","KILLED":"#fca5a5"} %}
+              {% if g.names %}
+                {% for n in g.names %}
+                  <span style="color:{{ NAME_COLORS.get(n.estado,'#94a3b8') }}">{{ n.name }}</span>
+                  {% if not loop.last %}  ·  {% endif %}
+                {% endfor %}
+              {% else %}
+                <span class="text-muted small">—</span>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>{# /tab-deployments #}
+
+  {# ════════════════════════════════════════════════════════════════════════════
+     TAB: PROCESOS
+  ═══════════════════════════════════════════════════════════════════════════ #}
+  <div id="tab-procesos" class="tab-pane">
+    {% set all_tipos_proc   = all_procs | map(attribute='tipo')   | unique | sort | list %}
+    {% set all_estados_proc = all_procs | map(attribute='estado') | unique | sort | list %}
+    {% set all_envs_proc    = all_procs | map(attribute='env')    | unique | sort | list %}
+    {% set all_deps_proc    = all_procs | map(attribute='dep')    | unique | sort | list %}
+    {% set n_running = all_procs | selectattr("estado","equalto","RUNNING") | list | length %}
+    {% set n_error   = all_procs | rejectattr("estado","equalto","RUNNING") | rejectattr("estado","equalto","UNKNOWN") | list | length %}
+
+    <div class="section-header">Todos los Procesos
+      <span class="section-meta">{{ total_procs }} procesos · {{ n_running }} running · {{ n_error }} con error</span>
+    </div>
+    <div class="filter-bar">
+      <input type="text" id="procsText" placeholder="Filtrar por nombre, deployment..."
+             oninput="applyFilters('procsTable','procs')">
+      <select id="procsEnv" onchange="applyFilters('procsTable','procs')">
+        <option value="">Todos los entornos</option>
+        {% for e in all_envs_proc %}<option value="{{ e }}">{{ e }}</option>{% endfor %}
+      </select>
+      <select id="procsDep" onchange="applyFilters('procsTable','procs')">
+        <option value="">Todos los deployments</option>
+        {% for d in all_deps_proc %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
+      </select>
+      <select id="procsTipo" onchange="applyFilters('procsTable','procs')">
+        <option value="">Todos los tipos</option>
+        {% for t in all_tipos_proc %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+      </select>
+      <select id="procsEstado" onchange="applyFilters('procsTable','procs')">
+        <option value="">Todos los estados</option>
+        {% for e in all_estados_proc %}<option value="{{ e }}">{{ e }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="table-wrap">
+      <table id="procsTable">
+        <thead><tr>
+          <th onclick="sortTable('procsTable',0)">Entorno<span class="sort-icon"></span></th>
+          <th onclick="sortTable('procsTable',1)">Deployment<span class="sort-icon"></span></th>
+          <th onclick="sortTable('procsTable',2)">Tipo<span class="sort-icon"></span></th>
+          <th onclick="sortTable('procsTable',3)">Proceso<span class="sort-icon"></span></th>
+          <th onclick="sortTable('procsTable',4)">Estado<span class="sort-icon"></span></th>
+          <th onclick="sortTable('procsTable',5)">Lag<span class="sort-icon"></span></th>
+          <th onclick="sortTable('procsTable',6)">Last Started<span class="sort-icon"></span></th>
+          <th onclick="sortTable('procsTable',7)">Tablas<span class="sort-icon"></span></th>
+          <th onclick="sortTable('procsTable',8)">Descripción<span class="sort-icon"></span></th>
+        </tr></thead>
+        <tbody>
+          {% for r in all_procs %}
+          {% set lag_cls = r.lag | lag_class %}
+          <tr class="row-{{ r.env | lower }}" data-env="{{ r.env }}" data-grupo="{{ r.grupo }}"
+              data-tipo="{{ r.tipo }}" data-estado="{{ r.estado }}" data-dep="{{ r.dep }}">
+            <td>{{ env_badge(r.env) }}</td>
+            <td class="mono small text-muted">{{ r.dep }}</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="{{ r.tipo }}">{{ r.tipo }}</span></td>
+            <td><strong>{{ r.nombre }}</strong></td>
+            <td>{{ status_badge(r.estado) }}</td>
+            <td class="{{ lag_cls }}">{{ r.lag }}</td>
+            <td class="text-muted small">
+              {% if r.last_started %}{{ r.last_started | replace('T',' ') | truncate(16, True, '') }}
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              {% if r.tipo in ("DIST_PATH","RCVR_PATH") %}
+                <span class="text-muted">—</span>
+              {% elif r.n_tablas > 0 %}
+                {{ r.n_tablas }}
+              {% else %}
+                <span class="text-muted">0</span>
+              {% endif %}
+            </td>
+            <td class="col-desc text-muted small" title="{{ r.desc }}">{{ r.desc or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>{# /tab-procesos #}
+
+  {# ════════════════════════════════════════════════════════════════════════════
+     TAB: TABLAS
+  ═══════════════════════════════════════════════════════════════════════════ #}
+  <div id="tab-tablas" class="tab-pane">
+    {% set all_tipos_tbl       = stats_rows | map(attribute='tipo')        | unique | sort | list %}
+    {% set all_estados_tbl     = stats_rows | map(attribute='estado')      | unique | sort | list %}
+    {# Use all_procs as env source so DEV appears even when it has no table stats #}
+    {% set all_envs_tbl        = all_procs  | map(attribute='env')         | unique | sort | list %}
+    {% set all_bbdd_tbl        = stats_rows | map(attribute='bbdd')        | unique | sort | list %}
+    {% set all_engines_tbl     = stats_rows | map(attribute='db_engine')   | unique | sort | list %}
+    {% set all_teams_tbl       = stats_rows | map(attribute='team')        | select | unique | sort | list %}
+    {% set all_costcenters_tbl = stats_rows | map(attribute='cost_center') | select | unique | sort | list %}
+
+    <div class="section-header">Tablas
+      <span class="section-meta">{{ total_tables }} tablas</span>
+    </div>
+    <div class="filter-bar">
+      <input type="text" id="tablesText" placeholder="Filtrar por tabla..."
+             oninput="applyFilters('tablesTable','tables')">
+      <select id="tablesEnv" onchange="applyFilters('tablesTable','tables')">
+        <option value="">Todos los entornos</option>
+        {% for e in all_envs_tbl %}<option value="{{ e }}">{{ e }}</option>{% endfor %}
+      </select>
+      <select id="tablesBbdd" onchange="applyFilters('tablesTable','tables')">
+        <option value="">Todas las BBDD</option>
+        {% for b in all_bbdd_tbl %}<option value="{{ b }}">{{ b }}</option>{% endfor %}
+      </select>
+      {% if all_engines_tbl | length > 1 %}
+      <select id="tablesDbengine" onchange="applyFilters('tablesTable','tables')">
+        <option value="">Todos los motores</option>
+        {% for e in all_engines_tbl %}<option value="{{ e }}">{{ e }}</option>{% endfor %}
+      </select>
+      {% endif %}
+      <select id="tablesTipo" onchange="applyFilters('tablesTable','tables')">
+        <option value="">Todos los tipos</option>
+        {% for t in all_tipos_tbl %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+      </select>
+      <select id="tablesEstado" onchange="applyFilters('tablesTable','tables')">
+        <option value="">Todos los estados</option>
+        {% for e in all_estados_tbl %}<option value="{{ e }}">{{ e }}</option>{% endfor %}
+      </select>
+      {% if all_teams_tbl %}
+      <select id="tablesTeam" onchange="applyFilters('tablesTable','tables')">
+        <option value="">Todos los equipos</option>
+        {% for t in all_teams_tbl %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+      </select>
+      {% endif %}
+      {% if all_costcenters_tbl %}
+      <select id="tablesCostcenter" onchange="applyFilters('tablesTable','tables')">
+        <option value="">Todos los CC</option>
+        {% for c in all_costcenters_tbl %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+      </select>
+      {% endif %}
+      <div class="toggle-group" id="statsToggle">
+        <button class="toggle-btn active" data-mode="24h" onclick="setStatsMode('24h')">Hoy</button>
+        <button class="toggle-btn"        data-mode="tot" onclick="setStatsMode('tot')">Total (startup)</button>
+      </div>
+      <button class="btn-export" onclick="exportFilteredHTML()" title="Descarga un HTML con solo las filas visibles">📥 Exportar</button>
+    </div>
+    <div class="table-wrap">
+      <table id="tablesTable">
+        <thead><tr>
+          <th onclick="sortTable('tablesTable',0)">Entorno<span class="sort-icon"></span></th>
+          <th onclick="sortTable('tablesTable',1)">Motor<span class="sort-icon"></span></th>
+          <th onclick="sortTable('tablesTable',2)">BBDD<span class="sort-icon"></span></th>
+          <th onclick="sortTable('tablesTable',3)">Proceso<span class="sort-icon"></span></th>
+          <th onclick="sortTable('tablesTable',4)">Tipo<span class="sort-icon"></span></th>
+          <th onclick="sortTable('tablesTable',5)">Estado<span class="sort-icon"></span></th>
+          <th onclick="sortTable('tablesTable',6)">Tabla<span class="sort-icon"></span></th>
+          <th onclick="sortTable('tablesTable',7)" title="Tamaño en disco (DBA_SEGMENTS)">Size<span class="sort-icon"></span></th>
+          <th onclick="sortTable('tablesTable',8)" title="Número de filas estimado (DBA_TAB_STATISTICS)">Rows<span class="sort-icon"></span></th>
+          <th onclick="sortTable('tablesTable',9)" title="Fecha último ANALYZE (DBA_TAB_STATISTICS)">Analyzed<span class="sort-icon"></span></th>
+          <th id="th-ins" onclick="sortTable('tablesTable',10)">Inserts<span class="sort-icon"></span></th>
+          <th id="th-upd" onclick="sortTable('tablesTable',11)">Updates<span class="sort-icon"></span></th>
+          <th id="th-del" onclick="sortTable('tablesTable',12)">Deletes<span class="sort-icon"></span></th>
+          <th id="th-ups" onclick="sortTable('tablesTable',13)">Upserts<span class="sort-icon"></span></th>
+          <th id="th-dis" onclick="sortTable('tablesTable',14)">Discards<span class="sort-icon"></span></th>
+          <th onclick="sortTable('tablesTable',15)">Descripción<span class="sort-icon"></span></th>
+        </tr></thead>
+        <tbody>
+          {% for r in stats_rows %}
+          {%- macro metric_cell(v24, vtot, cls) -%}
+          {%- set c24  = cls if v24  > 0 else "text-muted" -%}
+          {%- set ctot = cls if vtot > 0 else "text-muted" -%}
+          <td class="{{ c24 }}" data-h24="{{ v24 | fmt_num }}" data-tot="{{ vtot | fmt_num }}"
+              data-cls24="{{ c24 }}" data-clstot="{{ ctot }}">{{ v24 | fmt_num }}</td>
+          {%- endmacro -%}
+          <tr class="row-{{ r.env | lower }}" data-env="{{ r.env }}" data-grupo="{{ r.grupo }}"
+              data-tipo="{{ r.tipo }}" data-estado="{{ r.estado }}" data-proceso="{{ r.proceso }}"
+              data-bbdd="{{ r.bbdd }}" data-dbengine="{{ r.db_engine }}"
+              data-team="{{ r.team }}" data-costcenter="{{ r.cost_center }}">
+            <td>{{ env_badge(r.env) }}</td>
+            <td class="text-muted small">{{ r.db_engine }}</td>
+            <td><strong>{{ r.bbdd }}</strong></td>
+            <td class="text-muted">{{ r.proceso }}</td>
+            <td class="text-muted"><span class="tooltip-tipo" data-tipo="{{ r.tipo }}">{{ r.tipo }}</span></td>
+            <td>{{ status_badge(r.estado) }}</td>
+            <td class="mono small">
+              <strong>{{ r.tabla }}</strong>
+              {%- if r.team or r.cost_center %}
+              <div style="margin-top:2px;display:flex;gap:4px;flex-wrap:wrap;">
+                {%- if r.team %}<span class="badge-tag" title="Equipo solicitante">{{ r.team }}</span>{% endif -%}
+                {%- if r.cost_center %}<span class="badge-tag badge-cc" title="Centro de coste">{{ r.cost_center }}</span>{% endif -%}
+              </div>
+              {%- endif %}
+            </td>
+            <td class="text-muted small">{{ r.get('size_mb') | fmt_size }}</td>
+            <td class="text-muted small">{{ r.get('num_rows') | fmt_num }}</td>
+            <td class="text-muted small">{% if r.get('last_analyzed') %}{{ r.last_analyzed }}{% else %}—{% endif %}</td>
+            {{ metric_cell(r.inserts,  r.tot_ins, "text-teal") }}
+            {{ metric_cell(r.updates,  r.tot_upd, "text-purple") }}
+            {{ metric_cell(r.deletes,  r.tot_del, "text-red") }}
+            {{ metric_cell(r.upserts,  r.tot_ups, "text-teal") }}
+            {{ metric_cell(r.discards, r.tot_dis, "text-amber") }}
+            <td class="col-desc text-muted small" title="{{ r.desc }}">{{ r.desc or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>{# /tab-tablas #}
+
+  {# ════════════════════════════════════════════════════════════════════════════
+     TAB: CARGA INICIAL
+  ═══════════════════════════════════════════════════════════════════════════ #}
+  {% set _ini_total = (ini_load_data.extracts | length) + (ini_load_data.replicats | length) %}
+  {% if _ini_total %}
+  <div id="tab-ini" class="tab-pane">
+
+    {%- set sm = ini_load_data.summary -%}
+
+    {# ── Overall summary card ── #}
+    {% if sm.total_oracle_rows %}
+    <script>var _iniSummaries = {{ ini_load_data.summaries_by_env | tojson | safe }};</script>
+    <div id="ini-global-card" style="background:#111d2e;border:1px solid #1e3a5f;border-radius:8px;padding:20px 24px;margin-bottom:28px">
+
+      {# Big progress bar #}
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+        <span style="font-size:14px;font-weight:700;color:#e2e8f0;white-space:nowrap">Carga Inicial Global</span>
+        <div style="flex:1;background:#1e3a5f;border-radius:4px;height:10px;overflow:hidden">
+          <div style="background:linear-gradient(90deg,#0891b2,#06b6d4);height:100%;border-radius:4px;width:{{ sm.overall_progress_pct | round(1) if sm.overall_progress_pct else 0 }}%"></div>
+        </div>
+        <span style="font-size:14px;font-weight:700;color:#0891b2;white-space:nowrap">{{ sm.overall_progress_pct | round(1) if sm.overall_progress_pct is not none else '—' }}% replicado</span>
+        {% if sm.bottleneck %}
+        <span class="badge" style="background:#1e3a5f;color:#94a3b8;font-size:10px">bottleneck: {{ sm.bottleneck }}</span>
+        {% endif %}
+      </div>
+
+      {# Two columns: extraction + replication #}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+        {# Extraction column #}
+        <div style="background:#162032;border-radius:6px;padding:14px 16px;border-left:3px solid #0891b2">
+          <div style="font-size:11px;font-weight:700;color:#0891b2;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">⛏ Extracción</div>
+          <div style="font-size:22px;font-weight:700;color:#e2e8f0">{{ sm.total_extracted | fmt_num }}</div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:8px">/ {{ sm.total_oracle_rows | fmt_num }} filas estimadas Oracle
+            {% if sm.overall_extract_pct is not none %}&nbsp;·&nbsp;<span style="color:#0891b2">{{ sm.overall_extract_pct | round(1) }}%</span>{% endif %}
+          </div>
+          <div class="small text-muted">
+            {% if sm.display_extract_rate %}
+              Rate: <span style="color:#e2e8f0">{{ (sm.display_extract_rate * 60) | int | fmt_num }} rows/min</span>
+            {% else %}
+              Rate: <span class="text-muted">—</span>
+            {% endif %}
+            &nbsp;·&nbsp;
+            ETA: {% if sm.extract_eta_sec == 0 %}<span style="color:#6ee7b7">Completado ✓</span>
+                 {% elif sm.extract_eta_sec is not none %}~{{ sm.extract_eta_sec | fmt_duration }}
+                 {% else %}<span class="text-muted">—</span>{% endif %}
+          </div>
+          <div style="margin-top:8px;font-size:11px;color:#64748b">
+            {{ sm.n_extr_running }} running · {{ sm.n_extr_done }} done · {{ sm.n_extr_total }} total
+          </div>
+        </div>
+
+        {# Replication column #}
+        <div style="background:#162032;border-radius:6px;padding:14px 16px;border-left:3px solid #7c3aed">
+          <div style="font-size:11px;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">📥 Replicación</div>
+          <div style="font-size:22px;font-weight:700;color:#e2e8f0">{{ sm.total_replicated | fmt_num }}</div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:8px">/ {{ sm.total_oracle_rows | fmt_num }} filas estimadas Oracle
+            {% if sm.overall_progress_pct is not none %}&nbsp;·&nbsp;<span style="color:#7c3aed">{{ sm.overall_progress_pct | round(1) }}%</span>{% endif %}
+          </div>
+          <div class="small text-muted">
+            {% if sm.display_repl_rate %}
+              Rate: <span style="color:#e2e8f0">{{ (sm.display_repl_rate * 60) | int | fmt_num }} rows/min</span>
+            {% else %}
+              Rate: <span class="text-muted">—</span>
+            {% endif %}
+            &nbsp;·&nbsp;
+            ETA: {% if sm.replicat_eta_sec == 0 %}<span style="color:#6ee7b7">Completado ✓</span>
+                 {% elif sm.replicat_eta_sec is not none %}~{{ sm.replicat_eta_sec | fmt_duration }}
+                 {% else %}<span class="text-muted">pendiente de inicio</span>{% endif %}
+          </div>
+          <div style="margin-top:8px;font-size:11px;color:#64748b">
+            {{ sm.n_repl_running }} running
+            {% if sm.n_repl_pending > 0 %} · <span style="color:#7dd3fc">{{ sm.n_repl_pending }} pending</span>{% endif %}
+            · {{ sm.n_repl_done }} done · {{ sm.n_repl_total }} total
+            {% if sm.in_trail > 0 %}
+            · <span style="color:#d97706">{{ sm.in_trail | fmt_num }} en trail</span>
+            {% endif %}
+          </div>
+        </div>
+
+      </div>
+
+      {# Total ETA footer #}
+      {% if sm.total_eta_sec is not none %}
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid #1e3a5f;font-size:12px;color:#94a3b8;text-align:center">
+        ETA total estimada: <strong style="color:#e2e8f0;font-size:14px">~{{ sm.total_eta_sec | fmt_duration }}</strong>
+        {% if sm.bottleneck %} &nbsp;·&nbsp; bottleneck: <span style="color:#d97706">{{ sm.bottleneck }}</span>{% endif %}
+      </div>
+      {% endif %}
+
+    </div>
+    {% endif %}
+
+    {# ── macro: progress bar cell ── #}
+    {%- macro progress_cell(p) -%}
+      {% if p.progress_pct is not none %}
+        <div style="display:flex;align-items:center;gap:6px;min-width:140px">
+          <div class="ini-progress-wrap" style="flex:1">
+            <div class="ini-progress-fill" style="width:{{ p.progress_pct | round(1) }}%"></div>
+          </div>
+          <span class="small" style="white-space:nowrap">{{ p.progress_pct | round(1) }}%</span>
+        </div>
+      {% else %}<span class="text-muted small">sin datos Oracle</span>{% endif %}
+    {%- endmacro -%}
+
+    {# ── macro: ETA cell ── #}
+    {%- macro eta_cell(p) -%}
+      {% if p.progress_pct == 100.0 %}<span style="color:#6ee7b7">Completado ✓</span>
+      {% elif p.eta_sec is not none %}~{{ p.eta_sec | fmt_duration }}
+      {% else %}—{% endif %}
+    {%- endmacro -%}
+
+    {# ── macro: tabla cell (single-table processes — table + part label from description) ── #}
+    {%- macro tabla_cell(p) -%}
+      {% if p.tables %}
+        {% set t = p.tables[0] %}
+        {%- if p.desc and ' for table ' in p.desc -%}
+          <span class="mono small">{{ p.desc.split(' for table ')[-1].split(' (')[0] }}</span>
+        {%- else -%}
+          <span class="mono small">{{ t.tabla }}</span>
+        {%- endif -%}
+      {% else %}—{% endif %}
+    {%- endmacro -%}
+
+    {# ── EXTRACTS ── #}
+    {% if ini_load_data.extracts %}
+    <div class="section-header">⛏ Extracts de Carga Inicial
+      <span class="section-meta">({{ ini_load_data.extracts | length }} proceso{{ 's' if ini_load_data.extracts | length != 1 }})</span>
+    </div>
+    <div class="table-wrap" style="margin-bottom:32px">
+      <table>
+        <thead><tr>
+          <th>Entorno</th>
+          <th>Deployment</th>
+          <th>Proceso</th>
+          <th>Estado</th>
+          <th>Iniciado</th>
+          <th>Completado</th>
+          <th>Transcurrido</th>
+          <th>Progreso</th>
+          <th>Velocidad</th>
+          <th>ETA</th>
+          <th>Filas est/aplicadas</th>
+          <th>Tabla</th>
+        </tr></thead>
+        <tbody>
+          {% for p in ini_load_data.extracts %}
+          <tr data-env="{{ p.env }}" data-grupo="{{ p.grupo }}">
+            <td>{{ env_badge(p.env) }}</td>
+            <td class="mono small">{{ p.dep_name }}</td>
+            <td class="mono">{{ p.proc_name }}</td>
+            <td>{{ status_badge(p.estado) }}</td>
+            <td class="small text-muted">{{ p.started_str[:16] | replace("T"," ") if p.started_str else "—" }}</td>
+            <td class="small text-muted">
+              {%- if p.completed_str -%}{{ p.completed_str }}
+              {%- elif p.estado == "STOPPED" and p.progress_pct == 100.0 -%}<span style="color:#6ee7b7">✓</span>
+              {%- elif p.estado == "STOPPED" -%}<span class="text-muted">detenido</span>
+              {%- else -%}—{%- endif -%}
+            </td>
+            <td class="small">
+              {%- if p.elapsed_sec is not none -%}{{ p.elapsed_sec | fmt_duration }}
+              {%- elif p.estado == "STOPPED" -%}<span class="text-muted">—</span>
+              {%- else -%}—{%- endif -%}
+            </td>
+            <td>{{ progress_cell(p) }}</td>
+            <td class="small">{% if p.rate_per_sec is not none %}{{ (p.rate_per_sec * 60) | int | fmt_num }} rows/min{% else %}—{% endif %}</td>
+            <td class="small">{{ eta_cell(p) }}</td>
+            <td class="small">{% if p.total_rows %}{{ p.total_copied | fmt_num }} / {{ p.total_rows | fmt_num }}{% else %}{{ p.total_copied | fmt_num }}{% endif %}</td>
+            <td>{{ tabla_cell(p) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    {# ── REPLICATS ── #}
+    {% if ini_load_data.replicats %}
+    <div class="section-header">📥 Replicats de Carga Inicial
+      <span class="section-meta">({{ ini_load_data.replicats | length }} proceso{{ 's' if ini_load_data.replicats | length != 1 }})</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Entorno</th>
+          <th>Deployment</th>
+          <th>Proceso</th>
+          <th>Estado</th>
+          <th>Iniciado</th>
+          <th>Completado</th>
+          <th>Transcurrido</th>
+          <th>Progreso</th>
+          <th>Velocidad</th>
+          <th>ETA</th>
+          <th>Filas ext/aplicadas</th>
+          <th>Tabla</th>
+          <th>Ref. Extract</th>
+        </tr></thead>
+        <tbody>
+          {% for p in ini_load_data.replicats %}
+          <tr data-env="{{ p.env }}" data-grupo="{{ p.grupo }}">
+            <td>{{ env_badge(p.env) }}</td>
+            <td class="mono small">{{ p.dep_name }}</td>
+            <td class="mono">{{ p.proc_name }}</td>
+            <td>{{ status_badge(p.estado) }}</td>
+            <td class="small text-muted">{{ p.started_str[:16] | replace("T"," ") if p.started_str else "—" }}</td>
+            <td class="small text-muted">
+              {%- if p.completed_str -%}{{ p.completed_str }}
+              {%- elif p.estado == "STOPPED" and p.progress_pct == 100.0 -%}<span style="color:#6ee7b7">✓</span>
+              {%- elif p.estado == "STOPPED" -%}<span class="text-muted">detenido</span>
+              {%- else -%}—{%- endif -%}
+            </td>
+            <td class="small">
+              {%- if p.elapsed_sec is not none -%}{{ p.elapsed_sec | fmt_duration }}
+              {%- elif p.estado in ("STOPPED", "PENDING") -%}<span class="text-muted">—</span>
+              {%- else -%}—{%- endif -%}
+            </td>
+            <td>
+              {% if p.estado == "PENDING" %}
+                <span class="text-muted small">en espera</span>
+              {% else %}
+                {{ progress_cell(p) }}
+              {% endif %}
+            </td>
+            <td class="small">
+              {% if p.estado == "PENDING" %}
+                <span class="text-muted">—</span>
+              {% elif p.rate_per_sec is not none %}
+                {{ (p.rate_per_sec * 60) | int | fmt_num }} rows/min
+              {% else %}—{% endif %}
+            </td>
+            <td class="small">
+              {% if p.estado == "PENDING" %}
+                {% if p.eta_sec is not none %}
+                  <span class="text-amber" title="Estimación basada en velocidad media de replicats activos">~{{ p.eta_sec | fmt_duration }} (est.)</span>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              {% else %}
+                {{ eta_cell(p) }}
+              {% endif %}
+            </td>
+            <td class="small">
+              {% if p.estado == "PENDING" %}
+                <span class="text-muted">0</span>
+                {% if p.in_trail > 0 %}
+                  <span class="text-muted small"> · </span>
+                  <span style="color:#d97706" title="Filas extraídas en trail, listas para replicar">{{ p.in_trail | fmt_num }} en trail</span>
+                {% endif %}
+              {% elif p.total_rows %}
+                {{ p.total_copied | fmt_num }} / {{ p.total_rows | fmt_num }}
+              {% else %}
+                {{ p.total_copied | fmt_num }}
+              {% endif %}
+            </td>
+            <td>{{ tabla_cell(p) }}</td>
+            <td class="small">
+              {% if p.paired_extr %}
+              {% set pe = p.paired_extr %}
+              <span class="mono" style="color:#7dd3fc">{{ pe.proc_name }}</span>
+              {% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+  </div>{# /tab-ini #}
+  {% endif %}
+
+  {# ════════════════════════════════════════════════════════════════════════════
+     TAB: CONSUMO POR EQUIPO
+  ═══════════════════════════════════════════════════════════════════════════ #}
+  {% if team_summary.by_team %}
+  <div id="tab-consumo" class="tab-pane">
+
+    {%- set ts = team_summary -%}
+    {%- set tot = ts.totals -%}
+
+    {# ── Hoy / Total toggle — top of tab ── #}
+    <div style="display:flex;justify-content:flex-end;margin-bottom:20px">
+      <div class="toggle-group" id="consumoStatsToggle">
+        <button class="toggle-btn active" data-cmode="24h" onclick="setConsumoMode('24h')">Hoy</button>
+        <button class="toggle-btn"        data-cmode="tot" onclick="setConsumoMode('tot')">Total (startup)</button>
+      </div>
+    </div>
+
+    {# ── macros ── #}
+    {%- macro pct_bar(pct, cls, width_px=80) -%}
+      <span class="consumo-bar-wrap" style="width:{{ width_px }}px">
+        <span class="consumo-bar-fill fill-{{ cls }}" style="width:{{ pct | round(1) if pct else 0 }}%"></span>
+      </span>
+      <span class="small text-muted" style="margin-left:4px">{%- if pct is none -%}—{%- elif pct > 0 and pct < 0.05 -%}<0.1%{%- else -%}{{ pct | round(1) }}%{%- endif -%}</span>
+    {%- endmacro -%}
+
+    {%- macro dml_cell(ins, upd, dl, pct, pct_tot, mode_id) -%}
+      <td>
+        <span class="dml-24" {% if mode_id %}style="display:none"{% endif %}>
+          {{ (ins + upd + dl) | fmt_num }}
+          <br>{{ pct_bar(pct, 'teal') }}
+        </span>
+        <span class="dml-tot" {% if not mode_id %}style="display:none"{% endif %}>
+          {{ (ins + upd + dl) | fmt_num }}
+          <br>{{ pct_bar(pct_tot, 'teal') }}
+        </span>
+      </td>
+    {%- endmacro -%}
+
+    {# ── Top consumer KPI cards ── #}
+    {%- set _attr = ts.by_team | rejectattr('unattributed') | list -%}
+    {%- set _top_dml  = _attr | sort(attribute='dml',        reverse=true) | first | default(none) -%}
+    {%- set _top_proc = _attr | sort(attribute='proc_count', reverse=true) | first | default(none) -%}
+    {%- set _top_tbl  = _attr | sort(attribute='table_count',reverse=true) | first | default(none) -%}
+    {%- set _unattr   = ts.by_team | selectattr('unattributed') | first | default(none) -%}
+
+    <div class="kpi-grid" style="margin-bottom:28px">
+      {% if _top_dml %}
+      <div class="kpi-card kpi-green">
+        <div class="kpi-val" style="font-size:22px">{{ _top_dml.team }}</div>
+        <div class="kpi-label">Mayor consumo DML (hoy)</div>
+        <div class="kpi-sub">{{ _top_dml.dml | fmt_num }} ops · {{ _top_dml.pct_dml }}% del total</div>
+      </div>
+      {% endif %}
+      {% if _top_proc %}
+      <div class="kpi-card kpi-amber">
+        <div class="kpi-val" style="font-size:22px">{{ _top_proc.team }}</div>
+        <div class="kpi-label">Mayor uso de infra (replicats)</div>
+        <div class="kpi-sub">{{ _top_proc.proc_count }} replicat{{ 's' if _top_proc.proc_count != 1 }} · {{ _top_proc.pct_procs }}% del total</div>
+      </div>
+      {% endif %}
+      {% if _top_tbl %}
+      <div class="kpi-card" style="border-color:#7c3aed">
+        <div class="kpi-val" style="font-size:22px;color:#7c3aed">{{ _top_tbl.team }}</div>
+        <div class="kpi-label">Mayor número de tablas</div>
+        <div class="kpi-sub">{{ _top_tbl.table_count }} tablas · {{ _top_tbl.pct_tables }}% del total</div>
+      </div>
+      {% endif %}
+      {% if _unattr and _unattr.table_count > 0 %}
+      <div class="kpi-card" style="border-color:#475569">
+        <div class="kpi-val" style="font-size:28px;color:#475569">{{ _unattr.table_count }}</div>
+        <div class="kpi-label">Tablas sin equipo asignado</div>
+        <div class="kpi-sub">{{ _unattr.pct_tables }}% sin atribución · revisar TAGS en PRM</div>
+      </div>
+      {% endif %}
+    </div>
+
+    {# ── Donut charts data (rendered by JS below) ── #}
+    <script>
+    var _consumoTeams = [
+      {% for t in ts.by_team %}
+      { team: "{{ t.team | e }}", dml24: {{ t.dml or 0 }}, dmlTot: {{ t.tot_dml or 0 }}, size_mb: {{ t.size_mb if t.size_mb is not none else 'null' }}, procs: {{ t.proc_count }}, replIni: {{ t.repl_ini_count }}, replCdc: {{ t.repl_cdc_count }}, tables: {{ t.table_count }}, unattr: {{ 'true' if t.unattributed else 'false' }} }{{ ',' if not loop.last }}
+      {% endfor %}
+    ];
+    var _consumoTeamEnvs = [
+      {% for t in ts.by_team_env %}
+      { team: "{{ t.team | e }}", env: "{{ t.env }}", unattr: {{ 'true' if t.unattributed else 'false' }}, dml24: {{ t.dml or 0 }}, dmlTot: {{ t.tot_dml or 0 }}, size_mb: {{ t.size_mb if t.size_mb is not none else 'null' }}, procs: {{ t.proc_count }}, replIni: {{ t.repl_ini_count }}, replCdc: {{ t.repl_cdc_count }}, tables: {{ t.table_count }} }{{ ',' if not loop.last }}
+      {% endfor %}
+    ];
+    </script>
+
+    {# ── Donut charts ── #}
+    <div class="consumo-charts-row">
+      <div class="donut-widget">
+        <div class="donut-wrap">
+          <svg id="svg-dml" width="120" height="120"></svg>
+          <div class="donut-center">
+            <div class="donut-center-val" id="svg-dml-cval">—</div>
+            <div class="donut-center-lbl">ops DML</div>
+          </div>
+        </div>
+        <div class="donut-info">
+          <div class="donut-legend-title" id="donut-dml-title">Distribución DML · Hoy</div>
+          <div id="svg-dml-legend"></div>
+        </div>
+      </div>
+      <div class="donut-widget">
+        <div class="donut-wrap">
+          <svg id="svg-size" width="120" height="120"></svg>
+          <div class="donut-center">
+            <div class="donut-center-val" id="svg-size-cval">—</div>
+            <div class="donut-center-lbl">tablas</div>
+          </div>
+        </div>
+        <div class="donut-info">
+          <div class="donut-legend-title">Tamaño tablas</div>
+          <div id="svg-size-legend"></div>
+        </div>
+      </div>
+      <div class="donut-widget">
+        <div class="donut-wrap">
+          <svg id="svg-infra" width="120" height="120"></svg>
+          <div class="donut-center">
+            <div class="donut-center-val" id="svg-infra-cval">—</div>
+            <div class="donut-center-lbl">replicats</div>
+          </div>
+        </div>
+        <div class="donut-info">
+          <div class="donut-legend-title">Infra (replicats)</div>
+          <div id="svg-infra-legend"></div>
+        </div>
+      </div>
+      <div class="donut-widget">
+        <div class="donut-wrap">
+          <svg id="svg-tables" width="120" height="120"></svg>
+          <div class="donut-center">
+            <div class="donut-center-val" id="svg-tables-cval">—</div>
+            <div class="donut-center-lbl">tablas</div>
+          </div>
+        </div>
+        <div class="donut-info">
+          <div class="donut-legend-title">Tablas por equipo</div>
+          <div id="svg-tables-legend"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-header">Consumo por Equipo
+      <span class="section-meta">{{ tot.tables }} tablas · {{ tot.procs }} replicats en seguimiento</span>
+    </div>
+
+    {# ── Aggregate table (all envs) ── #}
+    <div class="table-wrap" style="margin-bottom:32px">
+      <table id="consumoTable">
+        <thead><tr>
+          <th>Equipo</th>
+          <th>Cost Center</th>
+          <th>Entornos</th>
+          <th title="Tablas únicas en replicats">Tablas</th>
+          <th title="% tablas sobre el total seguido">% Tablas</th>
+          <th>DML</th>
+          <th title="% DML sobre el total seguido">% DML</th>
+          <th title="Replicats con al menos una tabla del equipo">Replicats</th>
+          <th title="% replicats sobre el total">% Infra</th>
+          <th title="Suma tamaño Oracle (DBA_SEGMENTS) de las tablas del equipo">Tamaño tablas</th>
+        </tr></thead>
+        <tbody>
+          {% for t in ts.by_team %}
+          <tr class="{{ 'team-unattr' if t.unattributed }}">
+            <td><strong>{{ t.team }}</strong></td>
+            <td class="text-muted small">{{ t.cost_center }}</td>
+            <td>{% for e in t.envs %}{{ env_badge(e) }} {% endfor %}</td>
+            <td class="small">{{ t.table_count }}</td>
+            <td>{{ pct_bar(t.pct_tables, 'purple') }}</td>
+            <td>
+              <span class="dml-24">{{ t.dml | fmt_num }}</span>
+              <span class="dml-tot" style="display:none">{{ t.tot_dml | fmt_num }}</span>
+            </td>
+            <td>
+              <span class="dml-24">{{ pct_bar(t.pct_dml, 'teal') }}</span>
+              <span class="dml-tot" style="display:none">{{ pct_bar(t.pct_tot_dml, 'teal') }}</span>
+            </td>
+            <td class="small">{{ t.proc_count }}</td>
+            <td>{{ pct_bar(t.pct_procs, 'amber') }}</td>
+            <td class="text-muted small">{{ t.size_mb | fmt_size }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {# ── Breakdown by team + env ── #}
+    <div class="env-breakdown-header">Desglose por equipo y entorno
+      <span class="section-meta" style="font-size:10px;text-transform:none;letter-spacing:0" title="El total de tablas del equipo muestra tablas únicas entre todos los entornos; la suma por entorno puede ser mayor si la misma tabla se replica en varios entornos">ℹ tablas deduplicadas en el total por equipo</span>
+    </div>
+    <div class="table-wrap">
+      <table id="consumoEnvTable">
+        <thead><tr>
+          <th>Equipo</th>
+          <th>Cost Center</th>
+          <th>Entorno</th>
+          <th title="Tablas únicas en replicats de este entorno (puede solapar con otros entornos)">Tablas</th>
+          <th title="% tablas sobre el total seguido">% Tablas</th>
+          <th>DML</th>
+          <th title="% DML sobre el total seguido">% DML</th>
+          <th title="Replicats con al menos una tabla del equipo en este entorno">Replicats</th>
+          <th title="Deployments con replicats del equipo en este entorno">Deps</th>
+          <th title="Suma tamaño Oracle (DBA_SEGMENTS) de las tablas del equipo">Tamaño tablas</th>
+        </tr></thead>
+        <tbody>
+          {% for t in ts.by_team_env %}
+          <tr class="{{ 'team-unattr' if t.unattributed }}">
+            <td><strong>{{ t.team }}</strong></td>
+            <td class="text-muted small">{{ t.cost_center }}</td>
+            <td>{{ env_badge(t.env) }}</td>
+            <td class="small">{{ t.table_count }}</td>
+            <td>{{ pct_bar(t.pct_tables, 'purple', 60) }}</td>
+            <td>
+              <span class="dml-24">{{ t.dml | fmt_num }}</span>
+              <span class="dml-tot" style="display:none">{{ t.tot_dml | fmt_num }}</span>
+            </td>
+            <td>
+              <span class="dml-24">{{ pct_bar(t.pct_dml, 'teal', 60) }}</span>
+              <span class="dml-tot" style="display:none">{{ pct_bar(t.pct_tot_dml, 'teal', 60) }}</span>
+            </td>
+            <td class="small">{{ t.proc_count }}</td>
+            <td class="text-muted small mono">{{ t.deps | join(', ') }}</td>
+            <td class="text-muted small">{{ t.size_mb | fmt_size }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+  </div>{# /tab-consumo #}
+  {% endif %}
+
+  <div class="footer">Oracle GoldenGate Daily Report · {{ date_str }}</div>
+
+</div>{# /page #}
+
+<script>
+  const TIPO_DESC = {
+    "EXTR_CDC":  "Extract CDC – Captura cambios en tiempo real de la BD origen",
+    "EXTR_INI":  "Extract Initial Load – Carga inicial de datos históricos desde la BD origen",
+    "DIST_PATH": "Distribution Path – Canal de envío de trail files al servidor destino",
+    "REPL_CDC":  "Replicat CDC – Aplica cambios en tiempo real en la BD destino",
+    "REPL_INI":  "Replicat Initial Load – Aplica la carga inicial de datos en la BD destino",
+    "RCVR_PATH": "Receiver Path – Canal de recepción de trail files desde el servidor origen"
+  };
+
+  const _tt = document.getElementById('tt');
+  document.addEventListener('mouseover', function(e) {
+    const el = e.target.closest('.tooltip-tipo, .tooltip-info');
+    if (!el) return;
+    const desc = el.classList.contains('tooltip-tipo')
+                 ? TIPO_DESC[el.dataset.tipo]
+                 : el.dataset.tooltip;
+    if (!desc) return;
+    _tt.textContent = desc;
+    _tt.style.opacity = '1';
+  });
+  document.addEventListener('mouseout', function(e) {
+    if (e.target.closest('.tooltip-tipo, .tooltip-info')) _tt.style.opacity = '0';
+  });
+  document.addEventListener('mousemove', function(e) {
+    _tt.style.left = (e.clientX + 14) + 'px';
+    _tt.style.top  = (e.clientY - 34) + 'px';
+  });
+
+  function showTab(e, name) {
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    e.currentTarget.classList.add('active');
+  }
+
+  const COUNTS_BY_FILTER = {{ counts_js | safe }};
+
+  function updateTabCounts() {
+    const grupo = document.body.classList.contains('grupo-Online')      ? 'Online'
+                : document.body.classList.contains('grupo-InitialLoad') ? 'InitialLoad'
+                : '';
+    const env   = document.body.classList.contains('env-DEV') ? 'DEV'
+                : document.body.classList.contains('env-PRE') ? 'PRE'
+                : document.body.classList.contains('env-PRO') ? 'PRO'
+                : '';
+    const key = grupo + '|' + env;
+    const cp = document.getElementById('count-procesos');
+    const ct = document.getElementById('count-tablas');
+    if (cp) cp.textContent = COUNTS_BY_FILTER.procs[key]  ?? 0;
+    if (ct) ct.textContent = COUNTS_BY_FILTER.tables[key] ?? 0;
+  }
+
+  function setGrupoGlobal(btn, grupo) {
+    document.body.classList.remove('grupo-Online', 'grupo-InitialLoad');
+    if (grupo) document.body.classList.add('grupo-' + grupo);
+    document.querySelectorAll('#grupoToggle .toggle-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    updateTabCounts();
+    renderConsumoCharts(_consumoMode);
+  }
+
+  function setEnvGlobal(btn, env) {
+    document.body.classList.remove('env-DEV', 'env-PRE', 'env-PRO');
+    if (env) document.body.classList.add('env-' + env);
+    document.querySelectorAll('#envGlobalToggle .toggle-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    updateTabCounts();
+    updateIniGlobal(env);
+    renderConsumoCharts(_consumoMode);
+  }
+
+  function _activeEnv() {
+    return document.body.classList.contains('env-DEV') ? 'DEV'
+         : document.body.classList.contains('env-PRE') ? 'PRE'
+         : document.body.classList.contains('env-PRO') ? 'PRO' : '';
+  }
+
+  function _fmtDur(sec) {
+    if (sec == null) return '—';
+    sec = Math.floor(sec);
+    if (sec < 60)   return sec + 's';
+    if (sec < 3600) return Math.floor(sec/60) + 'm ' + (sec%60) + 's';
+    const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60);
+    if (h < 24) return h + 'h ' + m + 'm';
+    return Math.floor(h/24) + 'd ' + (h%24) + 'h';
+  }
+
+  function _iniCardHtml(sm) {
+    if (!sm || !sm.total_oracle_rows) return '<div style="text-align:center;padding:20px;color:#64748b;font-size:13px;font-style:italic">Sin procesos de carga inicial en este entorno</div>';
+    const pp  = sm.overall_progress_pct != null ? sm.overall_progress_pct.toFixed(1) : null;
+    const ep  = sm.overall_extract_pct  != null ? sm.overall_extract_pct.toFixed(1)  : null;
+    const bn  = sm.bottleneck ? `<span class="badge" style="background:#1e3a5f;color:#94a3b8;font-size:10px">bottleneck: ${sm.bottleneck}</span>` : '';
+    const fmtPct = (p) => p != null ? `<span style="color:#0891b2">${p}%</span>` : '';
+    const fmtPctP = (p) => p != null ? `<span style="color:#7c3aed">${p}%</span>` : '';
+    const eRate  = sm.display_extract_rate ? `<span style="color:#e2e8f0">${_dFmtNum(Math.floor(sm.display_extract_rate * 60))} rows/min</span>` : '<span class="text-muted">—</span>';
+    const rRate  = sm.display_repl_rate   ? `<span style="color:#e2e8f0">${_dFmtNum(Math.floor(sm.display_repl_rate   * 60))} rows/min</span>` : '<span class="text-muted">—</span>';
+    const eEta   = sm.extract_eta_sec  === 0 ? '<span style="color:#6ee7b7">Completado ✓</span>' : sm.extract_eta_sec  != null ? '~' + _fmtDur(sm.extract_eta_sec)  : '<span class="text-muted">—</span>';
+    const rEta   = sm.replicat_eta_sec === 0 ? '<span style="color:#6ee7b7">Completado ✓</span>' : sm.replicat_eta_sec != null ? '~' + _fmtDur(sm.replicat_eta_sec) : '<span class="text-muted">pendiente de inicio</span>';
+    const trail  = sm.in_trail > 0 ? `&nbsp;·&nbsp;<span style="color:#d97706">${_dFmtNum(sm.in_trail)} en trail</span>` : '';
+    const pend   = sm.n_repl_pending > 0 ? `&nbsp;·&nbsp;<span style="color:#7dd3fc">${sm.n_repl_pending} pending</span>` : '';
+    const eta    = sm.total_eta_sec != null
+      ? `<div style="margin-top:14px;padding-top:12px;border-top:1px solid #1e3a5f;font-size:12px;color:#94a3b8;text-align:center">ETA total estimada: <strong style="color:#e2e8f0;font-size:14px">~${_fmtDur(sm.total_eta_sec)}</strong>${sm.bottleneck ? '&nbsp;·&nbsp;bottleneck: <span style="color:#d97706">'+sm.bottleneck+'</span>' : ''}</div>` : '';
+    return `
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+        <span style="font-size:14px;font-weight:700;color:#e2e8f0;white-space:nowrap">Carga Inicial Global</span>
+        <div style="flex:1;background:#1e3a5f;border-radius:4px;height:10px;overflow:hidden">
+          <div style="background:linear-gradient(90deg,#0891b2,#06b6d4);height:100%;border-radius:4px;width:${pp || 0}%"></div>
+        </div>
+        <span style="font-size:14px;font-weight:700;color:#0891b2;white-space:nowrap">${pp != null ? pp : '—'}% replicado</span>
+        ${bn}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+        <div style="background:#162032;border-radius:6px;padding:14px 16px;border-left:3px solid #0891b2">
+          <div style="font-size:11px;font-weight:700;color:#0891b2;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">⛏ Extracción</div>
+          <div style="font-size:22px;font-weight:700;color:#e2e8f0">${_dFmtNum(sm.total_extracted)}</div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:8px">/ ${_dFmtNum(sm.total_oracle_rows)} filas estimadas Oracle${ep != null ? '&nbsp;·&nbsp;' + fmtPct(ep) : ''}</div>
+          <div class="small text-muted">Rate: ${eRate}&nbsp;·&nbsp;ETA: ${eEta}</div>
+          <div style="margin-top:8px;font-size:11px;color:#64748b">${sm.n_extr_running} running · ${sm.n_extr_done} done · ${sm.n_extr_total} total</div>
+        </div>
+        <div style="background:#162032;border-radius:6px;padding:14px 16px;border-left:3px solid #7c3aed">
+          <div style="font-size:11px;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">📥 Replicación</div>
+          <div style="font-size:22px;font-weight:700;color:#e2e8f0">${_dFmtNum(sm.total_replicated)}</div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:8px">/ ${_dFmtNum(sm.total_oracle_rows)} filas estimadas Oracle${pp != null ? '&nbsp;·&nbsp;' + fmtPctP(pp) : ''}</div>
+          <div class="small text-muted">Rate: ${rRate}&nbsp;·&nbsp;ETA: ${rEta}</div>
+          <div style="margin-top:8px;font-size:11px;color:#64748b">${sm.n_repl_running} running${pend} · ${sm.n_repl_done} done · ${sm.n_repl_total} total${trail}</div>
+        </div>
+      </div>${eta}`;
+  }
+
+  function updateIniGlobal(env) {
+    const card = document.getElementById('ini-global-card');
+    if (!card || typeof _iniSummaries === 'undefined') return;
+    const sm = env ? _iniSummaries[env] : _iniSummaries[''];
+    card.innerHTML = _iniCardHtml(sm || null);
+  }
+
+  function applyFilters(tableId, prefix) {
+    const textQ      = (document.getElementById(prefix+'Text')?.value       || '').toLowerCase();
+    const tipoQ      =  document.getElementById(prefix+'Tipo')?.value       || '';
+    const estadoQ    =  document.getElementById(prefix+'Estado')?.value     || '';
+    const envQ       =  document.getElementById(prefix+'Env')?.value        || '';
+    const depQ       =  document.getElementById(prefix+'Dep')?.value        || '';
+    const bbddQ      =  document.getElementById(prefix+'Bbdd')?.value       || '';
+    const engineQ    =  document.getElementById(prefix+'Dbengine')?.value   || '';
+    const teamQ      =  document.getElementById(prefix+'Team')?.value       || '';
+    const ccQ        =  document.getElementById(prefix+'Costcenter')?.value || '';
+    document.querySelectorAll('#' + tableId + ' tbody tr').forEach(tr => {
+      const ok = (!textQ   || tr.textContent.toLowerCase().includes(textQ))
+              && (!tipoQ   || tr.dataset.tipo       === tipoQ)
+              && (!estadoQ || tr.dataset.estado     === estadoQ)
+              && (!envQ    || tr.dataset.env        === envQ)
+              && (!depQ    || tr.dataset.dep        === depQ)
+              && (!bbddQ   || tr.dataset.bbdd       === bbddQ)
+              && (!engineQ || tr.dataset.dbengine   === engineQ)
+              && (!teamQ   || tr.dataset.team       === teamQ)
+              && (!ccQ     || tr.dataset.costcenter === ccQ);
+      tr.classList.toggle('tr-hidden', !ok);
+    });
+  }
+
+  const _sortState = {};
+  function sortTable(tableId, colIdx) {
+    const table = document.getElementById(tableId);
+    const tbody = table.querySelector('tbody');
+    const ths   = table.querySelectorAll('thead th');
+    const key   = tableId + ':' + colIdx;
+    const asc   = _sortState[key] !== true;
+    _sortState[key] = asc;
+
+    ths.forEach(th => th.classList.remove('th-sort-asc', 'th-sort-desc'));
+    ths[colIdx].classList.add(asc ? 'th-sort-asc' : 'th-sort-desc');
+
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+
+    function parseVal(td) {
+      if (!td) return '';
+      const clone = td.cloneNode(true);
+      clone.querySelectorAll('.sort-icon').forEach(el => el.remove());
+      const raw = clone.textContent.trim();
+      if (raw === '—' || raw === '') return asc ? '￿' : '';
+      const numM = raw.match(/^([\d.]+)([KMB]?)$/);
+      if (numM) {
+        const mult = {K:1e3, M:1e6, B:1e9}[numM[2]] || 1;
+        return parseFloat(numM[1]) * mult;
+      }
+      if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return new Date(raw).getTime() || raw;
+      const sizeM = raw.match(/^([\d.]+)\s*(GB|MB)$/i);
+      if (sizeM) return parseFloat(sizeM[1]) * (sizeM[2].toUpperCase() === 'GB' ? 1024 : 1);
+      return raw.toLowerCase();
+    }
+
+    rows.sort((a, b) => {
+      const va = parseVal(a.cells[colIdx]);
+      const vb = parseVal(b.cells[colIdx]);
+      if (typeof va === 'number' && typeof vb === 'number') return asc ? va - vb : vb - va;
+      return asc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+    });
+    rows.forEach(tr => tbody.appendChild(tr));
+  }
+
+  function exportFilteredHTML() {
+    const table = document.getElementById('tablesTable');
+    const headers = Array.from(table.querySelectorAll('thead th'))
+                        .map(th => th.childNodes[0].textContent.trim());
+
+    const visibleRows = Array.from(table.querySelectorAll('tbody tr'))
+                            .filter(tr => window.getComputedStyle(tr).display !== 'none');
+
+    if (visibleRows.length === 0) {
+      alert('No hay filas visibles para exportar. Ajusta los filtros primero.');
+      return;
+    }
+
+    // Build filter context description
+    const get = id => document.getElementById(id)?.value || '';
+    const parts = [];
+    if (get('tablesEnv'))    parts.push('Entorno: '  + get('tablesEnv'));
+    if (get('tablesBbdd'))   parts.push('BBDD: '     + get('tablesBbdd'));
+    if (get('tablesTipo'))   parts.push('Tipo: '     + get('tablesTipo'));
+    if (get('tablesEstado')) parts.push('Estado: '   + get('tablesEstado'));
+    if (get('tablesTeam'))   parts.push('Equipo: '   + get('tablesTeam'));
+    if (get('tablesText'))   parts.push('"' + get('tablesText') + '"');
+    const filterDesc = parts.length > 0 ? parts.join(' · ') : 'Sin filtros activos';
+    const modeLabel  = _statsMode === '24h' ? 'DML Hoy (desde medianoche)' : 'DML Total (desde startup)';
+
+    // Extract cell values — use data attributes for structured fields, textContent elsewhere
+    const rowsHtml = visibleRows.map(tr => {
+      const cells  = tr.querySelectorAll('td');
+      const env    = tr.dataset.env || '';
+      const estado = (tr.dataset.estado || '').toUpperCase();
+      const rowCls = estado === 'RUNNING' ? 'row-running'
+                   : estado === 'ABENDED' ? 'row-abended'
+                   : estado === 'STOPPED' ? 'row-stopped' : '';
+
+      const vals = Array.from(cells).map((td, i) => {
+        if (i === 0) return `<span class="badge badge-${env.toLowerCase()}">${env}</span>`;
+        if (i === 6) {  // Tabla: name + optional team tag
+          const name = td.querySelector('strong')?.textContent || td.textContent.trim();
+          const team = tr.dataset.team ? ` <span class="tag">${tr.dataset.team}</span>` : '';
+          return `<span class="mono">${name}</span>${team}`;
+        }
+        return td.textContent.trim().replace(/\s+/g, ' ');
+      });
+      return `<tr class="${rowCls}">${vals.map(v => `<td>${v}</td>`).join('')}</tr>`;
+    }).join('\n');
+
+    // Build filename
+    const now     = new Date();
+    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+    const envPart = get('tablesEnv') || get('tablesBbdd') || 'all';
+    const nowStr  = now.toLocaleDateString('es-ES') + ' ' + now.toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'});
+
+    const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OGG Tables — ${filterDesc}</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body  { font-family: 'Segoe UI', Arial, sans-serif; background: #0f172a; color: #e2e8f0; padding: 28px; }
+h1    { font-size: 18px; color: #38bdf8; margin-bottom: 6px; }
+.meta { font-size: 12px; color: #64748b; margin-bottom: 10px; }
+.filter-info { background: #1e293b; border: 1px solid #334155; border-radius: 6px;
+               padding: 7px 14px; font-size: 12px; color: #94a3b8; margin-bottom: 18px; }
+.table-wrap  { overflow-x: auto; border-radius: 8px; border: 1px solid #1e3a5f; }
+table  { width: 100%; border-collapse: collapse; font-size: 12px; white-space: nowrap; }
+thead th { background: #1e293b; color: #94a3b8; text-align: left; padding: 9px 12px;
+           border-bottom: 2px solid #334155; font-weight: 600; }
+tbody tr { border-bottom: 1px solid #1e293b; }
+tbody tr:nth-child(even) { background: #0f1f35; }
+tbody td { padding: 7px 12px; vertical-align: middle; }
+.row-running td:nth-child(6) { color: #4ade80; font-weight: 600; }
+.row-abended td:nth-child(6) { color: #f87171; font-weight: 600; }
+.row-stopped td:nth-child(6) { color: #64748b; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; }
+.badge-dev { background: #065f46; color: #6ee7b7; }
+.badge-pre { background: #581c87; color: #d8b4fe; }
+.badge-pro { background: #1e3a8a; color: #93c5fd; }
+.tag  { display: inline-block; background: #0c4a6e; color: #7dd3fc; border-radius: 3px;
+        font-size: 10px; padding: 1px 6px; margin-left: 4px; }
+.mono { font-family: 'Consolas', monospace; }
+.footer { margin-top: 14px; font-size: 11px; color: #334155; text-align: right; }
+</style>
+</head>
+<body>
+<h1>OGG Daily Report — Tablas</h1>
+<div class="meta">Exportado: ${nowStr} &nbsp;|&nbsp; ${visibleRows.length} filas &nbsp;|&nbsp; ${modeLabel}</div>
+<div class="filter-info">Filtros: ${filterDesc}</div>
+<div class="table-wrap">
+<table>
+<thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+<tbody>
+${rowsHtml}
+</tbody>
+</table>
+</div>
+<div class="footer">OGG Monitoring Report &mdash; generado autom&aacute;ticamente</div>
+</body>
+</html>`;
+
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `OGG_Tables_${envPart}_${dateStr}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  let _consumoMode = '24h';
+  function setConsumoMode(mode) {
+    if (_consumoMode === mode) return;
+    _consumoMode = mode;
+    document.querySelectorAll('#consumoStatsToggle .toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.cmode === mode));
+    const show24  = mode === '24h';
+    document.querySelectorAll('#tab-consumo .dml-24').forEach(el => el.style.display = show24  ? '' : 'none');
+    document.querySelectorAll('#tab-consumo .dml-tot').forEach(el => el.style.display = !show24 ? '' : 'none');
+    const dmlTitle = document.getElementById('donut-dml-title');
+    if (dmlTitle) dmlTitle.textContent = 'Distribución DML · ' + (show24 ? 'Hoy' : 'Total (startup)');
+    renderConsumoCharts(mode);
+  }
+
+  // ── Consumo donut charts ──────────────────────────────────────────────────────
+  const _dPalette = ['#0891b2','#7c3aed','#d97706','#059669','#e11d48','#ea580c'];
+  const _dGray    = '#475569';
+  const _dNS      = 'http://www.w3.org/2000/svg';
+
+  function _dFmtNum(n) {
+    if (n == null || n === 0) return '—';
+    if (n >= 1e6) return (n/1e6).toFixed(1)+'M';
+    if (n >= 1e3) return (n/1e3).toFixed(1)+'K';
+    return String(n);
+  }
+  function _dFmtSize(mb) {
+    if (!mb) return '—';
+    return mb >= 1024 ? (mb/1024).toFixed(1)+' GB' : Math.round(mb)+' MB';
+  }
+  function _dEsc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  function _drawDonut(svgId, legendId, cvalId, segments) {
+    const svg = document.getElementById(svgId);
+    const leg = document.getElementById(legendId);
+    const cval = document.getElementById(cvalId);
+    if (!svg) return;
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    if (leg) leg.innerHTML = '';
+    const total = segments.reduce((s,x) => s + (x.value||0), 0);
+    if (!total) { if (cval) cval.textContent = '—'; return; }
+    const cx=60, cy=60, R=50, r=30, GAP=0.03;
+    let angle = -Math.PI/2;
+    segments.forEach(seg => {
+      if (!seg.value) return;
+      const pct = seg.value/total, sweep = pct*2*Math.PI - GAP;
+      const a0 = angle + GAP/2, a1 = a0 + sweep, large = sweep > Math.PI ? 1 : 0;
+      const x1=cx+R*Math.cos(a0),y1=cy+R*Math.sin(a0),x2=cx+R*Math.cos(a1),y2=cy+R*Math.sin(a1);
+      const i1=cx+r*Math.cos(a1),j1=cy+r*Math.sin(a1),i2=cx+r*Math.cos(a0),j2=cy+r*Math.sin(a0);
+      const path = document.createElementNS(_dNS,'path');
+      path.setAttribute('d',`M${x1},${y1} A${R},${R},0,${large},1,${x2},${y2} L${i1},${j1} A${r},${r},0,${large},0,${i2},${j2} Z`);
+      path.setAttribute('fill', seg.color);
+      const op = seg.unattr ? '0.4' : '0.85';
+      path.setAttribute('opacity', op);
+      path.style.transition = 'opacity .12s';
+      path.addEventListener('mouseenter', () => path.setAttribute('opacity', seg.unattr ? '0.65':'1'));
+      path.addEventListener('mouseleave', () => path.setAttribute('opacity', op));
+      const t = document.createElementNS(_dNS,'title');
+      t.textContent = `${seg.label}: ${pct > 0 && pct*100 < 0.05 ? '<0.1' : (pct*100).toFixed(1)}%`;
+      path.appendChild(t); svg.appendChild(path);
+      if (leg) {
+        const row = document.createElement('div'); row.className = 'donut-legend-row';
+        row.innerHTML = `<span class="donut-legend-dot" style="background:${seg.color};opacity:${seg.unattr?.45:1}"></span>`
+          + `<span class="donut-legend-name" title="${_dEsc(seg.label)}">${_dEsc(seg.label)}</span>`
+          + `<span class="donut-legend-val">${seg.fmt(seg.value)}</span>`
+          + `<span class="donut-legend-pct">${pct > 0 && pct*100 < 0.05 ? '<0.1' : (pct*100).toFixed(1)}%</span>`;
+        leg.appendChild(row);
+      }
+      angle += pct*2*Math.PI;
+    });
+  }
+
+  function _activeGrupo() {
+    return document.body.classList.contains('grupo-Online')      ? 'Online'
+         : document.body.classList.contains('grupo-InitialLoad') ? 'InitialLoad' : '';
+  }
+
+  function renderConsumoCharts(mode) {
+    if (typeof _consumoTeams === 'undefined') return;
+    const env   = _activeEnv();
+    const grupo = _activeGrupo();
+    const dKey  = mode === 'tot' ? 'dmlTot' : 'dml24';
+
+    // Build env-filtered team data from by_team_env when an env filter is active
+    let teams;
+    if (env && typeof _consumoTeamEnvs !== 'undefined') {
+      const byTeam = {};
+      _consumoTeamEnvs.filter(t => t.env === env).forEach(t => {
+        if (!byTeam[t.team]) byTeam[t.team] = { team:t.team, dml24:0, dmlTot:0, size_mb:0, procs:0, replIni:0, replCdc:0, tables:0, unattr:t.unattr };
+        byTeam[t.team].dml24   += t.dml24   || 0;
+        byTeam[t.team].dmlTot  += t.dmlTot  || 0;
+        byTeam[t.team].size_mb += t.size_mb || 0;
+        byTeam[t.team].procs   += t.procs   || 0;
+        byTeam[t.team].replIni += t.replIni || 0;
+        byTeam[t.team].replCdc += t.replCdc || 0;
+        byTeam[t.team].tables  += t.tables  || 0;
+      });
+      teams = _consumoTeams.map(t => byTeam[t.team] || Object.assign({}, t, {dml24:0,dmlTot:0,size_mb:0,procs:0,replIni:0,replCdc:0,tables:0}));
+    } else {
+      teams = _consumoTeams;
+    }
+
+    // Infra donut: grupo filter selects REPL_INI, REPL_CDC, or all
+    function _procVal(t) {
+      if (grupo === 'Online')      return t.replCdc || 0;
+      if (grupo === 'InitialLoad') return t.replIni || 0;
+      return t.procs || 0;
+    }
+
+    // When grupo filter is active, zero out all metrics for teams that have no
+    // replicats in that grupo — keeps all four donuts consistent with each other
+    if (grupo) {
+      teams = teams.map(t => {
+        if (!_procVal(t)) return Object.assign({}, t, {dml24:0, dmlTot:0, size_mb:0, tables:0});
+        return t;
+      });
+    }
+
+    const totDml    = teams.reduce((s,t) => s+(t[dKey]||0), 0);
+    const totSize   = teams.reduce((s,t) => s+(t.size_mb||0), 0);
+    const totProcs  = teams.reduce((s,t) => s+_procVal(t), 0);
+    const totTables = teams.reduce((s,t) => s+(t.tables||0), 0);
+    const mk = (t,i,val,fmt) => ({ label:t.team, value:val, color:t.unattr?_dGray:_dPalette[i%_dPalette.length], unattr:t.unattr, fmt });
+    _drawDonut('svg-dml',    'svg-dml-legend',    'svg-dml-cval',    teams.map((t,i) => mk(t,i,t[dKey],_dFmtNum)));
+    _drawDonut('svg-size',   'svg-size-legend',   'svg-size-cval',   teams.map((t,i) => mk(t,i,t.size_mb,_dFmtSize)));
+    _drawDonut('svg-infra',  'svg-infra-legend',  'svg-infra-cval',  teams.map((t,i) => mk(t,i,_procVal(t),v=>String(v))));
+    _drawDonut('svg-tables', 'svg-tables-legend', 'svg-tables-cval', teams.map((t,i) => mk(t,i,t.tables,v=>String(v))));
+    const dv = document.getElementById('svg-dml-cval');    if(dv) dv.textContent = _dFmtNum(totDml)||'—';
+    const sv = document.getElementById('svg-size-cval');   if(sv) sv.textContent = _dFmtSize(totSize)||'—';
+    const iv = document.getElementById('svg-infra-cval');  if(iv) iv.textContent = totProcs||'—';
+    const tv = document.getElementById('svg-tables-cval'); if(tv) tv.textContent = totTables||'—';
+  }
+  renderConsumoCharts('24h');
+
+  let _statsMode = '24h';
+  function setStatsMode(mode) {
+    if (_statsMode === mode) return;
+    _statsMode = mode;
+    document.querySelectorAll('#statsToggle .toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+    const labels = {ins:'Inserts', upd:'Updates', del:'Deletes', ups:'Upserts', dis:'Discards'};
+    const suffix = mode === '24h' ? ' (Hoy)' : ' (Total)';
+    Object.keys(labels).forEach(k => {
+      const th = document.getElementById('th-' + k);
+      if (th) th.firstChild.textContent = labels[k] + suffix;
+    });
+    document.querySelectorAll('#tablesTable tbody td[data-h24]').forEach(td => {
+      td.textContent = mode === '24h' ? td.dataset.h24 : td.dataset.tot;
+      td.className   = mode === '24h' ? td.dataset.cls24 : td.dataset.clstot;
+    });
+  }
+
+
+</script>
+</body>
+</html>

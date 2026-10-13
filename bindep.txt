@@ -1,0 +1,20 @@
+# bindep.txt — system packages installed in the Execution Environment.
+#
+# Format: <package_name> [platform:rpm|platform:dpkg|...]   # for our case: RHEL9 EE -> rpm
+#
+# Required by:
+#   libaio          -> Oracle Instant Client (libclntsh.so dynamic loader)
+#   libnsl          -> Some Oracle client functions on RHEL 9 (rpcbind / NIS bindings)
+#   unzip           -> we use it in additional_build_steps to unpack the Instant Client zip
+#   gcc / *-devel   -> only required if pip needs to compile a wheel from source for any
+#                      of the C-extension packages (oracledb, cryptography, ibm_db). RHEL EE
+#                      ships with wheels available for most of them, but we include them
+#                      here so the build never fails if a wheel is missing.
+
+libaio       [platform:rpm]
+libnsl       [platform:rpm]
+unzip        [platform:rpm]
+gcc          [platform:rpm compile]
+python3-devel [platform:rpm compile]
+openssl-devel [platform:rpm compile]
+libffi-devel [platform:rpm compile]

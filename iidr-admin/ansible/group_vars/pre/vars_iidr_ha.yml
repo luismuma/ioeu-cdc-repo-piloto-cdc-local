@@ -1,0 +1,17 @@
+---
+## Variables HA para PRE — mapa de nombres canónicos → IPs por AZ.
+## Usado por iidr_ha_switch_az.yml para actualizar /etc/hosts al conmutar.
+## Rellenar ip_az_b cuando se asignen los servidores AZ-B de PRE.
+
+iidr_ha_canonical_hosts:
+  - canonical: "iidr-gr-db2-acs-a01-aws-pre"
+    ip_az_a: "10.91.44.71"   # IP de LESAWSEW141142 AS AZ-A
+    ip_az_b: "10.91.44.124"  # IP de LESAWSEW141129 AS AZ-B
+
+  - canonical: "iidr-gr-db2-db2-e01-aws-pre"
+    ip_az_a: "10.91.44.90"   # IP de LESAWSEW141140 DB2 AZ-A
+    ip_az_b: "10.91.44.119"  # IP de LESAWSEW141127 DB2 AZ-B
+
+  - canonical: "iidr-gr-db2-kfk-r01-aws-pre"
+    ip_az_a: "10.91.44.83"   # IP de LESAWSEW141141 KFK AZ-A
+    ip_az_b: "10.91.44.101"  # IP de LESAWSEW141128 KFK AZ-B

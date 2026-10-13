@@ -1,0 +1,370 @@
+---
+## Gestión de SUSCRIPCIONES IIDR vía AAP.
+##
+## Patrón de 2 plays validado (ver iidr_smoke_test.yml):
+##   Play 1 (localhost): valida extra-vars, resuelve el secreto AWS SM y
+##     registra el host destino (add_host).
+##   Play 2 (hosts: la 11 por SSH): ejecuta iidr.sh subscription <op> allí,
+##     como cdcauto (operación día a día — no requiere cdcadmin).
+##
+## Extra-vars (AAP survey / -e):
+##   iidr_env   dev|pre|pro    (default dev)
+##   action     read | create | delete | start | stop | lock | unlock | reinit | setup-kafka
+##   funcional  <clave target_connections.yaml / iidr_datastores.yaml>  (opcional)
+##              Si se pasa, deriva 'source' (db2) y 'target' (kafka) del
+##              inventario ligero iidr_datastores.yaml. Si la funcional tiene
+##              >1 datastore kafka, hay que pasar además 'target' (cuál usar).
+##              Alternativa: pasar 'source'/'target' a mano (tienen prioridad).
+##   source     <datastore origen>     (obligatorio en todas, salvo si se deriva de funcional)
+##   target     <datastore destino>    (obligatorio en create/delete/lock/unlock/setup-kafka, salvo derivado)
+##   name       <nombre suscripción>   (obligatorio salvo en read-list)
+##   description <texto>               (opcional, solo create)
+##   method     normal|immediate|abort (opcional, solo stop; default normal)
+##
+## setup-kafka — configura una sub Kafka para que arranque (mappings +
+##   kafka properties + user exit KCOP + genera el .properties en el motor):
+##   tables      SCHEMA.T1,SCHEMA.T2   (default REAL.TB030T001,REAL.TB030T002)
+##   topic_prefix <prefijo>            (default esp.int.cac.bronze.grcdcpiloto)
+##   database    <bbdd>                (default DB2DSNT — para el namespace AVRO)
+##   audit_record_name <nombre>        (default DB2)
+##   Requiere en el secreto AWS SM: KAFKA_CLIENT_ID/SECRET/POOL_ID.
+##   NO arranca la sub (usar action=start después).
+##
+## Firmas iidr.sh (del código, la doc está desactualizada):
+##   read:   list --source S            | show --source S --name N
+##   create: create --source S --target T --name N [--description D]
+##   delete: delete --source S --target T --name N        (¡requiere target!)
+##   start:  start  --source S --name N
+##   stop:   stop   --source S --name N [--method M]
+##   lock:   lock   --source S --target T --name N
+##   unlock: unlock --source S --target T --name N
+##   reinit: reinit --source S --name N
+##
+## NOTA KCOP: iidr.sh (CLI Java) NO soporta KCOP ni properties-por-template.
+## 'create' hace un 'add subscription' básico; una sub Kafka recién creada
+## así aún no replicará de forma útil hasta configurar KCOP/mappings. Eso
+## es una mejora pendiente del CLI Java, no de este playbook.
+##
+## Requisitos AAP: EE custom + Machine Credential (ec2-user) +
+## Custom Credential AWS SM (cdc-custom-credential).
+
+# ══════════════════════════════════════════════════════════════════════
+# PLAY 1 — localhost: validar, resolver secreto, registrar host destino
+# ══════════════════════════════════════════════════════════════════════
+- name: "Preparar (localhost) — subscription"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/all/vars.yml"
+
+  tasks:
+    - name: "Resolver iidr_env / action"
+      ansible.builtin.set_fact:
+        iidr_env: "{{ iidr_env | default('dev', true) }}"
+        action: "{{ action | default('read', true) }}"
+
+    - name: "Validar action"
+      ansible.builtin.assert:
+        that:
+          - iidr_env in ['dev', 'pre', 'pro']
+          - action in ['read', 'create', 'delete', 'start', 'stop', 'lock', 'unlock', 'reinit', 'setup-kafka']
+        fail_msg: "iidr_env (dev|pre|pro) y action válidos son obligatorios."
+
+    # ── Derivación desde el inventario ligero (si se pasa 'funcional') ─────
+    # Si se pasa 'funcional' (clave de target_connections.yaml), el inventario
+    # iidr_datastores.yaml es AUTORITATIVO y GANA sobre 'source'/'target':
+    #   - db2:   siempre 1 -> origen efectivo.
+    #   - kafka: si 1 -> destino efectivo; si >1 -> exige 'target' explícito
+    #            (ambiguo) y se valida que pertenece a la funcional.
+    # (Si NO se pasa 'funcional', se usan 'source'/'target' tal cual — modo
+    # manual retrocompatible.)
+    #
+    # IMPORTANTE (precedencia Ansible): el survey de AAP envía 'source'/'target'
+    # como EXTRA-VARS, que tienen precedencia MÁXIMA — por encima de set_fact.
+    # Por eso NO se puede "sobrescribir" source/target con set_fact (el valor
+    # extra-var vuelve a ganar al leerlo). La solución es calcular el valor
+    # efectivo en variables NUEVAS (_eff_source / _eff_target) que no colisionan
+    # con ninguna extra-var, y usar SOLO esas aguas abajo (validaciones+add_host).
+    - name: "Leer inventario ligero de datastores (si hay 'funcional')"
+      ansible.builtin.set_fact:
+        _iidr_ds_inv: >-
+          {{ (lookup('ansible.builtin.file',
+                     playbook_dir ~ '/../../../cdc-controller/config/inventory_deployments/iidr_datastores.yaml')
+              | from_yaml) }}
+      when: funcional is defined and funcional | length > 0
+
+    - name: "Validar que la funcional existe en el inventario ligero"
+      ansible.builtin.assert:
+        that:
+          - funcional in _iidr_ds_inv
+          - (_iidr_ds_inv[funcional].datastores | default([])) | length > 0
+        fail_msg: "'{{ funcional }}' no existe en iidr_datastores.yaml o no tiene datastores."
+      when: funcional is defined and funcional | length > 0
+
+    - name: "Derivar listas de datastores db2 / kafka de la funcional"
+      ansible.builtin.set_fact:
+        _ds_db2: "{{ _iidr_ds_inv[funcional].datastores | selectattr('kind', '==', 'db2') | map(attribute='datastore') | list }}"
+        _ds_kafka: "{{ _iidr_ds_inv[funcional].datastores | selectattr('kind', '==', 'kafka') | map(attribute='datastore') | list }}"
+      when: funcional is defined and funcional | length > 0
+
+    # Calcular origen/destino EFECTIVOS. Si hay 'funcional', el inventario
+    # manda (db2 siempre 1 -> _eff_source; kafka 1 -> _eff_target; kafka >1 ->
+    # se exige 'target' explícito, validado abajo). Si NO hay 'funcional', se
+    # usan las extra-vars 'source'/'target' tal cual (modo manual).
+    - name: "Calcular origen efectivo (_eff_source)"
+      ansible.builtin.set_fact:
+        _eff_source: >-
+          {{ (_ds_db2 | first)
+             if (funcional is defined and funcional | length > 0 and _ds_db2 | length == 1)
+             else (source | default('')) }}
+
+    - name: "Calcular destino efectivo (_eff_target)"
+      ansible.builtin.set_fact:
+        _eff_target: >-
+          {{ (_ds_kafka | first)
+             if (funcional is defined and funcional | length > 0 and _ds_kafka | length == 1)
+             else (target | default('')) }}
+
+    - name: "Si hay >1 datastore kafka, exigir 'target' explícito y validarlo"
+      ansible.builtin.assert:
+        that:
+          - target is defined and target | length > 0
+          - target in _ds_kafka
+        fail_msg: >-
+          La funcional '{{ funcional }}' tiene varios datastores kafka
+          ({{ _ds_kafka | join(', ') }}). Pasa 'target' con uno de ellos.
+      when:
+        - funcional is defined and funcional | length > 0
+        - _ds_kafka | length > 1
+
+    - name: "Validar origen efectivo (obligatorio en todas las acciones)"
+      ansible.builtin.assert:
+        that:
+          - _eff_source is defined and _eff_source | length > 0
+        fail_msg: >-
+          No hay datastore origen. Pasa 'funcional' (se deriva del inventario)
+          o 'source' a mano.
+
+    - name: "Validar 'name' (obligatorio salvo en read-list)"
+      ansible.builtin.assert:
+        that:
+          - name is defined and name | length > 0
+        fail_msg: "'name' (suscripción) es obligatorio para action={{ action }}."
+      when: not (action == 'read' and (name is not defined or name | length == 0))
+
+    - name: "Validar destino efectivo (obligatorio en create/delete/lock/unlock/setup-kafka)"
+      ansible.builtin.assert:
+        that:
+          - _eff_target is defined and _eff_target | length > 0
+        fail_msg: >-
+          No hay datastore destino para action={{ action }}. Pasa 'funcional'
+          (se deriva) o 'target' a mano.
+      when: action in ['create', 'delete', 'lock', 'unlock', 'setup-kafka']
+
+    # ── Resolución de parámetros específicos de setup-kafka ────────────
+    - name: "setup-kafka — resolver parámetros (con defaults de prueba)"
+      ansible.builtin.set_fact:
+        # Lista de tablas SCHEMA.TABLA (extra-var 'tables' separada por coma).
+        sk_tables: "{{ (tables | default('REAL.TB030T001,REAL.TB030T002', true)).split(',') | map('trim') | select('!=', '') | list }}"
+        sk_topic_prefix: "{{ topic_prefix | default('esp.int.cac.bronze.grcdcpiloto', true) }}"
+        sk_database: "{{ database | default('DB2DSNT', true) }}"
+        sk_audit_record_name: "{{ audit_record_name | default('DB2', true) }}"
+      when: action == 'setup-kafka'
+
+    - name: "setup-kafka — validar parámetros"
+      ansible.builtin.assert:
+        that:
+          - name is defined and name | length > 0
+          - sk_tables | length > 0
+          - sk_topic_prefix | length > 0
+          - sk_database | length > 0
+        fail_msg: >-
+          setup-kafka requiere: name, target, tables (SCHEMA.TABLA,...),
+          topic_prefix y database. (tables/topic_prefix/database tienen
+          defaults de prueba).
+      when: action == 'setup-kafka'
+
+    - name: "Cargar secrets del entorno desde AWS SM"
+      ansible.builtin.set_fact:
+        _vault: >-
+          {{ (aws_secret_json_dev  if iidr_env == 'dev'  else
+              aws_secret_json_pre  if iidr_env == 'pre'  else
+              aws_secret_json_pro) | from_json }}
+      no_log: true
+
+    - name: "Verificar clave del truststore en el secreto"
+      ansible.builtin.assert:
+        that:
+          - iidr_key_tls_password in _vault
+          - _vault[iidr_key_tls_password] | length > 0
+        fail_msg: "El secreto no contiene '{{ iidr_key_tls_password }}'."
+
+    - name: "setup-kafka — verificar claves del Schema Registry en el secreto"
+      ansible.builtin.assert:
+        that:
+          - iidr_key_sr_client_id in _vault and _vault[iidr_key_sr_client_id] | length > 0
+          - iidr_key_sr_client_secret in _vault and _vault[iidr_key_sr_client_secret] | length > 0
+          - iidr_key_sr_pool_id in _vault and _vault[iidr_key_sr_pool_id] | length > 0
+        fail_msg: >-
+          El secreto no contiene las claves del Schema Registry
+          ({{ iidr_key_sr_client_id }}, {{ iidr_key_sr_client_secret }},
+          {{ iidr_key_sr_pool_id }}). Añádelas al secreto AWS SM.
+      when: action == 'setup-kafka'
+
+    - name: "Registrar host destino {{ iidr_exec_host }}"
+      ansible.builtin.add_host:
+        name: "{{ iidr_exec_host }}"
+        groups: iidr_exec
+        _tls_pwd: "{{ _vault[iidr_key_tls_password] }}"
+        _action: "{{ action }}"
+        _source: "{{ _eff_source }}"
+        _target: "{{ _eff_target }}"
+        _name: "{{ name | default('') }}"
+        _description: "{{ description | default('') }}"
+        _method: "{{ method | default('') }}"
+        _sk_tables: "{{ sk_tables | default([]) }}"
+        _sk_topic_prefix: "{{ sk_topic_prefix | default('') }}"
+        _sk_database: "{{ sk_database | default('') }}"
+        _sk_audit_record_name: "{{ sk_audit_record_name | default('DB2') }}"
+        _sr_client_id: "{{ _vault[iidr_key_sr_client_id] | default('') }}"
+        _sr_client_secret: "{{ _vault[iidr_key_sr_client_secret] | default('') }}"
+        _sr_pool_id: "{{ _vault[iidr_key_sr_pool_id] | default('') }}"
+      no_log: true
+
+    # setup-kafka: registrar el motor Kafka (la 10) para depositar el
+    # <SUB>.properties en su dir conf. Es un host distinto del AS.
+    - name: "setup-kafka — registrar motor Kafka {{ iidr_kafka_engine_host }}"
+      ansible.builtin.add_host:
+        name: "{{ iidr_kafka_engine_host }}"
+        groups: iidr_kafka_engine
+        _kafka_ds: "{{ _eff_target }}"
+        _sub: "{{ name }}"
+        # conf de la instancia del datastore DESTINO real (no el default del
+        # entorno), para soportar multi-datastore (target puede ser R02/R03...).
+        _conf_dir: "{{ iidr_kafka_instance_root }}/{{ _eff_target }}/conf"
+        _sk_tables: "{{ sk_tables }}"
+        _sk_topic_prefix: "{{ sk_topic_prefix }}"
+        _sk_database: "{{ sk_database }}"
+        _sk_audit_record_name: "{{ sk_audit_record_name }}"
+        _sr_client_id: "{{ _vault[iidr_key_sr_client_id] }}"
+        _sr_client_secret: "{{ _vault[iidr_key_sr_client_secret] }}"
+        _sr_pool_id: "{{ _vault[iidr_key_sr_pool_id] }}"
+        _sr_url: "{{ iidr_sr_url }}"
+        _sr_issuer_url: "{{ iidr_sr_issuer_url }}"
+        _sr_scope: "{{ iidr_sr_scope }}"
+        _sr_logical_cluster: "{{ iidr_sr_logical_cluster }}"
+      no_log: true
+      when: action == 'setup-kafka'
+
+# ══════════════════════════════════════════════════════════════════════
+# PLAY 1b — SOLO setup-kafka: depositar <SUB>.properties en el motor Kafka
+#           (se ejecuta antes que la config del AS, que referencia el fichero)
+# ══════════════════════════════════════════════════════════════════════
+- name: "setup-kafka — generar y depositar .properties en el motor Kafka"
+  hosts: iidr_kafka_engine
+  gather_facts: false
+  become: true
+  become_user: cdcuser
+
+  tasks:
+    - name: "Renderizar y depositar {{ _sub }}.properties"
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../templates/kcop.properties.j2"
+        dest: "{{ _conf_dir }}/{{ _sub }}.properties"
+        owner: cdcuser
+        group: cdcadmin
+        mode: "0640"
+      no_log: true
+      vars:
+        kcop_sub: "{{ _sub }}"
+        kcop_kafka_ds: "{{ _kafka_ds }}"
+        kcop_topic_prefix: "{{ _sk_topic_prefix }}"
+        kcop_database: "{{ _sk_database }}"
+        kcop_audit_record_name: "{{ _sk_audit_record_name }}"
+        kcop_tables: "{{ _sk_tables }}"
+        kcop_sr_url: "{{ _sr_url }}"
+        kcop_sr_issuer_url: "{{ _sr_issuer_url }}"
+        kcop_sr_scope: "{{ _sr_scope }}"
+        kcop_sr_logical_cluster: "{{ _sr_logical_cluster }}"
+        kcop_sr_client_id: "{{ _sr_client_id }}"
+        kcop_sr_client_secret: "{{ _sr_client_secret }}"
+        kcop_sr_pool_id: "{{ _sr_pool_id }}"
+
+    - name: "Confirmar despliegue del .properties"
+      ansible.builtin.debug:
+        msg: "Depositado {{ _conf_dir }}/{{ _sub }}.properties en {{ inventory_hostname }}"
+
+# ══════════════════════════════════════════════════════════════════════
+# PLAY 2 — en la 11 (SSH real): ejecutar iidr.sh subscription <op>
+# ══════════════════════════════════════════════════════════════════════
+- name: "Ejecutar (en la 11) — subscription"
+  hosts: iidr_exec
+  gather_facts: false
+  become: true
+  become_user: cdcuser
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/all/vars.yml"
+
+  tasks:
+    # Componer los argumentos de iidr.sh según la acción.
+    - name: "Componer argumentos de iidr.sh"
+      ansible.builtin.set_fact:
+        _args: >-
+          {{
+            ('show --source ' ~ _source ~ ' --name ' ~ _name if _name | length > 0
+               else 'list --source ' ~ _source) if _action == 'read'
+            else 'create --source ' ~ _source ~ ' --target ' ~ _target ~ ' --name ' ~ _name
+                 ~ (' --description ' ~ ('"' ~ _description ~ '"') if _description | length > 0 else '') if _action == 'create'
+            else 'delete --source ' ~ _source ~ ' --target ' ~ _target ~ ' --name ' ~ _name if _action == 'delete'
+            else 'start --source ' ~ _source ~ ' --name ' ~ _name if _action == 'start'
+            else 'stop --source ' ~ _source ~ ' --name ' ~ _name
+                 ~ (' --method ' ~ _method if _method | length > 0 else '') if _action == 'stop'
+            else 'lock --source ' ~ _source ~ ' --target ' ~ _target ~ ' --name ' ~ _name if _action == 'lock'
+            else 'unlock --source ' ~ _source ~ ' --target ' ~ _target ~ ' --name ' ~ _name if _action == 'unlock'
+            else 'reinit --source ' ~ _source ~ ' --name ' ~ _name if _action == 'reinit'
+            else 'setup-kafka --source ' ~ _source ~ ' --target ' ~ _target ~ ' --name ' ~ _name
+                 ~ ' --tables ' ~ (_sk_tables | join(','))
+                 ~ ' --commit-topic ' ~ _sk_topic_prefix ~ '.' ~ _name ~ '-commitstream'
+                 ~ ' --properties-path ' ~ iidr_kafka_engine_conf_dir ~ '/' ~ _name ~ '.properties' if _action == 'setup-kafka'
+            else ''
+          }}
+
+    - name: "subscription {{ _action }}"
+      ansible.builtin.shell: "{{ iidr_sh_path }} subscription {{ _args }}"
+      environment:
+        TLS_TRUST_STORE_PASSWORD: "{{ _tls_pwd }}"
+      register: iidr_result
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: "Resultado crudo (cmd / rc / stdout / stderr)"
+      ansible.builtin.debug:
+        msg:
+          - "cmd: {{ iidr_sh_path }} subscription {{ _args }}"
+          - "rc: {{ iidr_result.rc | default('N/A') }}"
+          - "stdout: {{ iidr_result.stdout | default('(vacío)') }}"
+          - "stderr: {{ iidr_result.stderr | default('(vacío)') }}"
+
+    - name: "Parsear JSON (solo si stdout parece JSON)"
+      ansible.builtin.set_fact:
+        _out: "{{ iidr_result.stdout | from_json }}"
+      when: iidr_result.stdout | default('') | trim is match('^\\{')
+
+    - name: "RESULTADO"
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'OK — status=' ~ _out.status
+             ~ (' — ' ~ _out.message if _out.message else '')
+             if _out is defined and _out.status is defined
+             else 'FALLO — revisar rc/stdout/stderr arriba' }}
+
+    - name: "Fallar si iidr.sh devolvió ERROR"
+      ansible.builtin.assert:
+        that:
+          - _out is defined
+          - _out.status is defined
+          - _out.status in ['OK', 'SKIPPED']
+        fail_msg: "iidr.sh subscription {{ _action }} devolvió ERROR o salida no válida."
+        success_msg: "subscription {{ _action }} -> {{ _out.status }}."

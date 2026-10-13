@@ -1,0 +1,30 @@
+EXTRACT {{ extract_name }}
+
+-- DB Connection
+SOURCEDB USERIDALIAS {{ useridalias }}{% if domain %} DOMAIN {{ domain }}{% endif %}
+
+-- Encryption using local wallet master key
+ENCRYPTTRAIL AES256
+
+-- TRAIL NAME
+EXTTRAIL {{ trail_path }}
+
+-- Write capture stats per table to the report file daily.
+REPORT AT 00:01
+
+-- Rollover the report file weekly
+REPORTROLLOVER AT 00:01 ON SUNDAY
+
+-- Report total operations captured, and operations per second
+REPORTCOUNT EVERY 5 MINUTES, RATE
+
+-- Avoid abending the extract if collection is recreated
+no_abend_on_ddl
+
+-- JVMOPTIONS CLASSPATH
+JVMOPTIONS CLASSPATH {{ ogg_home | default('/u01/ogg/ogg26ai') }}/ggjava/ggjava.jar:/u01/ogg/dependencies/mongodb_capture_5.1.0/*
+
+-- Tables
+{% for line in table_lines %}
+{{ line }}
+{% endfor %}

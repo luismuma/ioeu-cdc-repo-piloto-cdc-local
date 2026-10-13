@@ -1,0 +1,498 @@
+---
+# =============================================================================
+# ogg_daily_report.yml
+# Descripción : Playbook AAP/AWX para ejecutar el reporte diario de OGG.
+#               Genera el HTML, opcionalmente lo envía por email, y elimina
+#               los ficheros generados al finalizar (con éxito o con error).
+#
+# El playbook se ejecuta en el nodo de ejecución de AAP (localhost).
+# AAP hace el checkout del repo desde SCM y todas las rutas se derivan de
+# playbook_dir automáticamente.
+#
+# Variables — definir en la plantilla de trabajo como Extra Variables.
+# Ver ansible/extra_vars_sample.yml para referencia completa.
+#
+# Credenciales — inyectadas por AAP Custom Credential. Nunca se escriben en disco.
+#
+# Estructura de plays:
+#   Play 1 (localhost) — genera el HTML, lo sube a S3/email, registra el reporting host.
+#                        Usa block/rescue para que un fallo no marque localhost como
+#                        fallido — la limpieza y el re-fallo ocurren en Play 3.
+#   Play 2 (ogg_reporting_hosts) — copia HTML + log al reporting host vía SSH nativa.
+#                                   Solo se ejecuta si reporting_host está configurado.
+#   Play 3 (localhost) — limpia ficheros temporales en el EE y re-propaga el fallo
+#                        del Play 1 si hubo error.
+# =============================================================================
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Play 1: Generar y entregar el reporte
+# ─────────────────────────────────────────────────────────────────────────────
+- name: OGG Daily Status Report — Generar y Entregar
+  hosts: localhost
+  connection: local
+  gather_facts: true
+
+  vars:
+    ansible_python_interpreter: "{{ aap_ansible_python | default('/usr/bin/python3') }}"
+
+    # Ruta al script — relativa al directorio del playbook (resuelta por AAP desde SCM)
+    script_path:    "{{ playbook_dir }}/../ogg_report.py"
+
+    # Inventario OGG — ruta relativa al checkout de SCM
+    ogg_inventory:  "{{ playbook_dir }}/../../../cdc-controller/config/inventory_deployments/inventory.yaml"
+
+    # Python para ejecutar ogg_report.py — sobreescribible con ogg_python_interpreter
+    ogg_python:     "{{ ogg_python_interpreter | default('python3') }}"
+
+    report_date:    "{{ ansible_date_time.date | regex_replace('-','') }}"
+    report_ts:      "{{ report_date }}_{{ ansible_date_time.time | regex_replace(':','') }}"
+    report_file:    "OGG_Informe_{{ report_ts }}.html"
+    log_file:       "OGG_Informe_{{ report_ts }}.log"
+
+    # Directorio de salida temporal en el runner de AAP (limpiado al finalizar)
+    reports_dir:    "{{ playbook_dir }}/../reports"
+    report_path:    "{{ reports_dir }}/{{ report_date }}/{{ report_file }}"
+    log_path:       "{{ reports_dir }}/logs/ogg_report_{{ report_ts }}.log"
+
+    # AWS Secrets Manager — inyectados por el Custom Credential (cdc-secret-lookup)
+    # El playbook fusiona los tres vaults y pasa las claves al script como env vars.
+    aws_secret_json_dev: ""
+    aws_secret_json_pre: ""
+    aws_secret_json_pro: ""
+
+    # Conexiones Oracle (opcional — activa el fetch de size/rows/last_analyzed por tabla)
+    # Requiere oracledb instalado en el EE: pip install oracledb
+    # Las contraseñas Oracle se leen de los vaults (ORACLE_<PDB>_GGADMIN ya vienen en el env).
+    db_connections: "{{ playbook_dir }}/../../../cdc-controller/config/inventory_connections/db_connections.yaml"
+
+    # Filtro de deployment (opcional)
+    filter_deploy:  ""
+
+    # Polling de progreso — sobreescribibles como Extra Variables en AAP
+    # ogg_poll_interval_sec : segundos entre cada comprobación del log (default: 2 min)
+    # ogg_poll_max_minutes  : límite de espera en minutos; 0 = sin límite (default: 0)
+    #                         Con 0 se usan 1440 min (24 h) internamente — el timeout
+    #                         real lo pone el job template de AAP.
+    _ogg_effective_max_min: "{{ 1440 if (ogg_poll_max_minutes | default(0) | int) == 0 else (ogg_poll_max_minutes | default(0) | int) }}"
+    _ogg_poll_iterations:   "{{ ((_ogg_effective_max_min | int * 60) / (ogg_poll_interval_sec | default(120) | int)) | int }}"
+    _ogg_async_timeout:     "{{ _ogg_effective_max_min | int * 60 }}"
+
+    # Email — dejar email_to vacío para no enviar
+    email_to:       ""
+    email_from:     "ogg-monitoring@mapfre.com"
+    smtp_host:      "smtp.es.mapfre.net"
+    smtp_port:      25
+    smtp_tls:       false   # true → STARTTLS (port 587); false → plain (port 25)
+    smtp_user:      ""      # vacío → sin autenticación SMTP
+    smtp_password:  ""
+
+    # S3 — dejar s3_bucket vacío para no subir
+    s3_bucket:      ""      # ej. mapfre-ogg-reports
+    s3_prefix:      "ogg-reports"  # prefijo/carpeta dentro del bucket
+    s3_url_ttl:     86400   # TTL de la URL prefirmada en segundos (24h)
+    s3_region:      ""      # vacío → usa la región del rol IAM del EE
+
+    # Reporting host — copia el HTML y el log a un servidor remoto vía SSH nativa de Ansible
+    # Dejar reporting_host vacío para no copiar
+    reporting_host:       ""
+    reporting_user:       "ec2-user"    # SSH user en el reporting host
+    reporting_become:     false         # true → become oracle (requiere sudo); false → ec2-user escribe directamente
+    reporting_become_exe: "/usr/bin/sudo"  # ruta a sudo — solo relevante si reporting_become: true
+    reporting_base_path:  "/u01/repo/reporting_dataia/reports_from_AAP"
+
+  tasks:
+
+    - name: OGG report — generate and deliver
+      block:
+
+        # ── Registrar rutas como host facts (primer task — garantiza que los
+        #    plays posteriores tienen los paths incluso si el bloque falla) ────
+
+        - name: Registrar rutas para cleanup y entrega
+          ansible.builtin.set_fact:
+            _ogg_report_path:          "{{ report_path }}"
+            _ogg_report_file:          "{{ report_file }}"
+            _ogg_log_path:             "{{ log_path }}"
+            _ogg_log_file:             "{{ log_file }}"
+            _ogg_report_date:          "{{ report_date }}"
+            _ogg_reports_dir:          "{{ reports_dir }}"
+            _ogg_reporting_base_path:  "{{ reporting_base_path }}"
+            _ogg_reporting_become:     "{{ reporting_become | default(false) }}"
+            _ogg_reporting_become_exe: "{{ reporting_become_exe }}"
+
+        # Register the reporting host early — before the script runs — so Play 2
+        # always has a target even when ogg_report.py fails and rescue fires.
+        - name: Registrar reporting host en inventario dinámico
+          ansible.builtin.add_host:
+            name:                "{{ reporting_host }}"
+            groups:              ogg_reporting_hosts
+            ansible_user:        "{{ reporting_user }}"
+            ansible_pipelining:  true
+            ansible_become:      "{{ reporting_become | default(false) }}"
+            ansible_become_user: "oracle"
+            ansible_become_exe:  "{{ reporting_become_exe }}"
+          when: reporting_host | length > 0
+          changed_when: false
+
+        # ── Pre-flight ────────────────────────────────────────────────────────
+
+        - name: Verificar dependencias Python
+          ansible.builtin.command: "{{ ogg_python }} -c 'import yaml, requests, jinja2'"
+          changed_when: false
+
+        - name: Verificar que ogg_report.py existe
+          ansible.builtin.stat:
+            path: "{{ script_path }}"
+          register: script_stat
+          failed_when: not script_stat.stat.exists
+
+        - name: Verificar que el inventario OGG existe
+          ansible.builtin.stat:
+            path: "{{ ogg_inventory }}"
+          register: inv_stat
+          failed_when: not inv_stat.stat.exists
+
+        - name: Crear directorio de reports del día
+          ansible.builtin.file:
+            path: "{{ reports_dir }}/{{ report_date }}"
+            state: directory
+            mode: "0750"
+
+        - name: Crear directorio de logs
+          ansible.builtin.file:
+            path: "{{ reports_dir }}/logs"
+            state: directory
+            mode: "0750"
+
+        # ── Ejecutar el script de reporte ─────────────────────────────────────
+
+        - name: Parsear vault DEV
+          ansible.builtin.set_fact:
+            _vault_dev: "{{ aws_secret_json_dev | from_json }}"
+          when: aws_secret_json_dev | length > 0
+          no_log: true
+
+        - name: Parsear vault PRE
+          ansible.builtin.set_fact:
+            _vault_pre: "{{ aws_secret_json_pre | from_json }}"
+          when: aws_secret_json_pre | length > 0
+          no_log: true
+
+        - name: Parsear vault PRO
+          ansible.builtin.set_fact:
+            _vault_pro: "{{ aws_secret_json_pro | from_json }}"
+          when: aws_secret_json_pro | length > 0
+          no_log: true
+
+        - name: Construir entorno del script OGG
+          ansible.builtin.set_fact:
+            _ogg_env: >-
+              {{
+                ((_vault_dev | default({}))
+                 | combine(_vault_pre | default({}))
+                 | combine(_vault_pro | default({})))
+                | dict2items
+                | selectattr('key', 'match', '^(ORACLE_|MONGO_|AWS_)')
+                | list | items2dict
+                | combine({
+                    'OGG_VAULT_DEV': aws_secret_json_dev | default(''),
+                    'OGG_VAULT_PRE': aws_secret_json_pre | default(''),
+                    'OGG_VAULT_PRO': aws_secret_json_pro | default(''),
+                  })
+              }}
+          no_log: true
+
+        - name: Construir argumentos del script
+          ansible.builtin.set_fact:
+            script_args: >-
+              -i {{ ogg_inventory }}
+              {{ '-d ' + filter_deploy if filter_deploy | length > 0 else '' }}
+              {{ '--db-connections ' + db_connections if db_connections | length > 0 else '' }}
+              --out {{ report_path }}
+
+        # ── Ejecutar ogg_report.py en segundo plano ──────────────────────────
+        # Ansible shell/command captura todo el stdout del subprocess y solo lo
+        # emite al log de AAP cuando la tarea termina. Para ver progreso en
+        # tiempo real usamos async + un bucle de polling que lee el log con
+        # debug tasks (estas sí se emiten inmediatamente en AAP).
+
+        - name: Lanzar ogg_report.py en segundo plano
+          ansible.builtin.shell: |
+            cd {{ playbook_dir }}/.. && \
+            {{ ogg_python }} -u {{ script_path }} {{ script_args }} \
+              > {{ log_path }} 2>&1
+          async: "{{ _ogg_async_timeout }}"
+          poll: 0
+          register: ogg_job
+          changed_when: true
+          environment: "{{ _ogg_env | default({}) | combine({'PYTHONUNBUFFERED': '1'}) }}"
+
+        - name: "Follow ogg_report.py progress (every {{ ogg_poll_interval_sec | default(120) }}s)"
+          ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../ansible/common/_poll_async_progress.yml"
+          vars:
+            _async_jid:           "{{ ogg_job.ansible_job_id }}"
+            _async_log_path:      "{{ log_path }}"
+            _async_poll_interval: "{{ ogg_poll_interval_sec | default(120) }}"
+            _async_poll_max:      "{{ _ogg_poll_iterations }}"
+            _async_self_path:     "{{ playbook_dir }}/../../../ansible/common/_poll_async_progress.yml"
+            # Sync log lines to reporting host during polling (skipped when reporting_host is empty)
+            _async_log_sync_host:        "{{ reporting_host }}"
+            _async_log_sync_dest:        "{{ reporting_base_path }}/{{ report_date }}/{{ log_file }}"
+            _async_log_sync_user:        "{{ reporting_user }}"
+            _async_log_sync_become:      "{{ reporting_become | default(false) | bool }}"
+            _async_log_sync_become_user: "oracle"
+            _async_log_sync_become_exe:  "{{ reporting_become_exe }}"
+
+        - name: Obtener resultado final de ogg_report.py
+          ansible.builtin.async_status:
+            jid: "{{ ogg_job.ansible_job_id }}"
+          register: ogg_report_result
+          failed_when: false
+
+        - name: Fallar si ogg_report.py devolvió error
+          ansible.builtin.fail:
+            msg: >-
+              ogg_report.py falló (rc={{ ogg_report_result.rc | default('?') }}).
+              Revisa el log en el reporting host:
+              {{ reporting_base_path }}/{{ report_date }}/{{ log_file }}
+          when: (ogg_report_result.rc | default(1) | int) != 0
+
+        # ── Verificar HTML generado ───────────────────────────────────────────
+
+        - name: Verificar que el HTML se generó correctamente
+          ansible.builtin.stat:
+            path: "{{ report_path }}"
+          register: html_stat
+          failed_when: not html_stat.stat.exists or html_stat.stat.size == 0
+
+        # ── Upload a S3 y URL prefirmada (opcional) ──────────────────────────
+
+        - name: Subir HTML a S3 y generar URL prefirmada
+          ansible.builtin.command:
+            argv:
+              - "{{ ogg_python }}"
+              - "-c"
+              - |
+                import boto3, sys
+
+                bucket   = "{{ s3_bucket }}"
+                prefix   = "{{ s3_prefix }}"
+                date_str = "{{ report_date }}"
+                filename = "{{ report_file }}"
+                src_path = "{{ report_path }}"
+                ttl      = {{ s3_url_ttl | int }}
+                region   = "{{ s3_region }}" or None
+
+                s3_key = "/".join(filter(None, [prefix, date_str, filename]))
+
+                kwargs = {}
+                if region:
+                    kwargs["region_name"] = region
+
+                s3 = boto3.client("s3", **kwargs)
+
+                with open(src_path, "rb") as fh:
+                    s3.put_object(
+                        Bucket=bucket,
+                        Key=s3_key,
+                        Body=fh.read(),
+                        ContentType="text/html",
+                    )
+
+                url = s3.generate_presigned_url(
+                    "get_object",
+                    Params={"Bucket": bucket, "Key": s3_key},
+                    ExpiresIn=ttl,
+                )
+                print(url)
+          register: _s3_upload
+          when: s3_bucket | length > 0
+          changed_when: true
+
+        - name: Registrar URL prefirmada como fact
+          ansible.builtin.set_fact:
+            _s3_url: "{{ _s3_upload.stdout | trim }}"
+          when: s3_bucket | length > 0 and _s3_upload is not skipped
+
+        - name: Publicar URL en resumen del job AAP
+          ansible.builtin.set_stats:
+            data:
+              ogg_report_url: "{{ _s3_url }}"
+            per_host: false
+          when: _s3_url is defined
+
+        # ── Envío por email (opcional) ────────────────────────────────────────
+        # Usa smtplib de la stdlib de Python — no requiere community.general.
+
+        - name: Preparar lista de destinatarios
+          ansible.builtin.set_fact:
+            _email_recipients: "{{ email_to.split(',') | map('trim') | list }}"
+          when: email_to | length > 0
+
+        - name: Enviar reporte por email
+          ansible.builtin.command:
+            argv:
+              - "{{ ogg_python }}"
+              - "-c"
+              - |
+                import smtplib
+                from email.mime.multipart import MIMEMultipart
+                from email.mime.text import MIMEText
+                from email.mime.application import MIMEApplication
+
+                recipients  = {{ _email_recipients | to_json }}
+                report_path = "{{ report_path }}"
+                report_file = "{{ report_file }}"
+                use_tls     = {{ 'True' if smtp_tls else 'False' }}
+                smtp_user   = "{{ smtp_user }}"
+                smtp_pass   = "{{ smtp_password }}"
+
+                msg = MIMEMultipart()
+                msg['From']    = "{{ email_from }}"
+                msg['To']      = ", ".join(recipients)
+                msg['Subject'] = "OGG Daily Report — {{ ansible_date_time.date }}"
+
+                body = (
+                    "Informe diario Oracle GoldenGate — {{ ansible_date_time.date }}\n\n"
+                    "El informe se adjunta como fichero HTML autocontenido.\n"
+                    "Abrelo directamente en el navegador para ver todas las pestanas\n"
+                    "(Infraestructura, Deployments, Procesos y Tablas) con filtros y orden interactivos.\n"
+                )
+                msg.attach(MIMEText(body, 'plain', 'utf-8'))
+
+                with open(report_path, 'rb') as f:
+                    attachment = MIMEApplication(f.read(), Name=report_file)
+                attachment['Content-Disposition'] = f'attachment; filename="{report_file}"'
+                msg.attach(attachment)
+
+                with smtplib.SMTP("{{ smtp_host }}", {{ smtp_port }}, timeout=30) as s:
+                    s.ehlo()
+                    if use_tls:
+                        s.starttls()
+                        s.ehlo()
+                    if smtp_user:
+                        s.login(smtp_user, smtp_pass)
+                    s.sendmail("{{ email_from }}", recipients, msg.as_string())
+
+                print(f"Email enviado a: {', '.join(recipients)}")
+          when: email_to | length > 0
+          no_log: "{{ smtp_password | length > 0 }}"
+
+        # ── Resumen ───────────────────────────────────────────────────────────
+
+        - name: Resumen del reporte
+          ansible.builtin.debug:
+            msg:
+              - "✓ Reporte generado: {{ report_date }}"
+              - "  Reporting host: {{ reporting_host + ':' + reporting_base_path + '/' + report_date + '/' + report_file if reporting_host | length > 0 else '(no configurado)' }}"
+              - "  S3 URL: {{ _s3_url if _s3_url is defined else '(no configurado)' }}"
+              - "  Email: {{ email_to if email_to | length > 0 else '(no configurado)' }}"
+
+      rescue:
+        # ── Rescue — captura fallos del bloque principal ──────────────────────
+        # Marcar el fallo para re-propagarlo al final del Play 3 (después de
+        # que Play 2 haya copiado el log al reporting host).
+        # Sin rescue, localhost quedaría marcado como fallido y Play 3 (limpieza)
+        # sería ignorado por Ansible en el siguiente play.
+
+        - name: Registrar fallo del reporte
+          ansible.builtin.set_fact:
+            _ogg_play1_failed: true
+
+        - name: Mostrar aviso de fallo
+          ansible.builtin.debug:
+            msg: "El reporte OGG falló. El log será copiado al reporting host (si está configurado). La limpieza se realizará en Play 3."
+
+  # Las credenciales solo existen como env vars — nunca se escriben en disco.
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Play 2: Copiar HTML + log al reporting host
+# Solo se ejecuta si reporting_host fue configurado (grupo ogg_reporting_hosts
+# tiene al menos un host). Ansible usa su conexión SSH nativa — correcto para
+# el módulo copy (src leído del EE/controller, dest escrito en el host remoto).
+#
+# El log tiene el mismo nombre base que el HTML para facilitar la consulta
+# conjunta. Las líneas de deployments en paralelo se pueden filtrar con:
+#   grep "OGG_<DEPLOYMENT>" OGG_Informe_20260930_143022.log
+# ─────────────────────────────────────────────────────────────────────────────
+- name: OGG Daily Report — Copiar al Reporting Host
+  hosts: ogg_reporting_hosts
+  gather_facts: false
+
+  tasks:
+
+    - name: Crear directorio del día en reporting host
+      ansible.builtin.file:
+        path: "{{ hostvars['localhost']['_ogg_reporting_base_path'] }}/{{ hostvars['localhost']['_ogg_report_date'] }}"
+        state: directory
+        mode: "0755"
+
+    - name: Copiar HTML al reporting host
+      ansible.builtin.copy:
+        src:  "{{ hostvars['localhost']['_ogg_report_path'] }}"
+        dest: "{{ hostvars['localhost']['_ogg_reporting_base_path'] }}/{{ hostvars['localhost']['_ogg_report_date'] }}/{{ hostvars['localhost']['_ogg_report_file'] }}"
+        mode: "0644"
+
+    - name: Copiar log al reporting host
+      ansible.builtin.copy:
+        src:  "{{ hostvars['localhost']['_ogg_log_path'] }}"
+        dest: "{{ hostvars['localhost']['_ogg_reporting_base_path'] }}/{{ hostvars['localhost']['_ogg_report_date'] }}/{{ hostvars['localhost']['_ogg_log_file'] }}"
+        mode: "0644"
+      ignore_errors: true   # el log puede no existir si el script falló antes de arrancar
+
+    - name: Confirmar entrega en reporting host
+      ansible.builtin.debug:
+        msg:
+          - "✓ Ficheros copiados a {{ hostvars['localhost']['_ogg_reporting_base_path'] }}/{{ hostvars['localhost']['_ogg_report_date'] }}/"
+          - "  HTML: {{ hostvars['localhost']['_ogg_report_file'] }}"
+          - "  Log:  {{ hostvars['localhost']['_ogg_log_file'] }}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Play 3: Limpieza local en el EE + re-propagación de fallos
+# Elimina HTML, log y directorio temporal del día en el runner de AAP.
+# Se ejecuta siempre (Play 1 usa rescue para no marcar localhost como fallido).
+# Al final re-propaga el fallo del Play 1 si hubo error — el job de AAP
+# termina como FAILED con el mensaje correcto.
+# ─────────────────────────────────────────────────────────────────────────────
+- name: OGG Daily Report — Limpieza y Re-propagación de Fallos
+  hosts: localhost
+  connection: local
+  gather_facts: true
+
+  vars:
+    ansible_python_interpreter: "{{ aap_ansible_python | default('/usr/bin/python3') }}"
+    report_date:  "{{ ansible_date_time.date | regex_replace('-','') }}"
+    report_ts:    "{{ report_date }}_{{ ansible_date_time.time | regex_replace(':','') }}"
+    reports_dir:  "{{ playbook_dir }}/../reports"
+    report_file:  "OGG_Informe_{{ report_ts }}.html"
+    report_path:  "{{ reports_dir }}/{{ report_date }}/{{ report_file }}"
+    log_path:     "{{ reports_dir }}/logs/ogg_report_{{ report_ts }}.log"
+
+  tasks:
+
+    - name: Eliminar HTML generado (limpieza EE)
+      ansible.builtin.file:
+        path: "{{ report_path }}"
+        state: absent
+
+    - name: Eliminar log generado (limpieza EE)
+      ansible.builtin.file:
+        path: "{{ log_path }}"
+        state: absent
+
+    - name: Eliminar directorio del día (limpieza EE)
+      ansible.builtin.file:
+        path: "{{ reports_dir }}/{{ report_date }}"
+        state: absent
+
+    # Re-propagar el fallo del Play 1 ahora que la limpieza está completa
+    # y el log ya ha sido copiado al reporting host.
+    - name: Re-propagar fallo del Play 1
+      ansible.builtin.fail:
+        msg: >-
+          El reporte OGG falló durante la generación.
+          Revisa el log en el reporting host:
+          {{ _ogg_reporting_base_path | default('(sin reporting host)') }}/{{ report_date }}/OGG_Informe_{{ report_date }}.log
+      when: _ogg_play1_failed | default(false)

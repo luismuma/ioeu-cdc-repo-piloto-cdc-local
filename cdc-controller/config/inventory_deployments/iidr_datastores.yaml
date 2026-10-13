@@ -1,0 +1,46 @@
+---
+# IIDR — Inventario ligero de datastores por unidad funcional
+#
+# Mapea cada UNIDAD FUNCIONAL (misma clave que en target_connections.yaml,
+# ej. KAFKA_PILOTO_01_PRE) a la lista de datastores que tiene asignados y en
+# qué servidor (motor) vive cada uno.
+#
+# POR QUÉ EXISTE:
+#   - Un motor Kafka puede tener N datastores, cada uno "cableado" a una unidad
+#     funcional distinta (distinto pool/permisos en Confluent). El nombre del
+#     datastore es ÚNICO global (se anota en un único Access Server).
+#   - La relación unidad_funcional -> datastore -> servidor NO es derivable de
+#     ningún otro sitio: ni del nombre, ni del Access Server (que solo sabe qué
+#     datastores existen en total), ni del servidor (que sabe qué instancias
+#     tiene pero no de qué unidad funcional son). Por eso este inventario es
+#     AUTORITATIVO.
+#
+# QUIÉN LO ESCRIBE: un HUMANO. Como el resto de ficheros de config/, los
+#   playbooks y cdc-controller solo LO LEEN; nunca lo escriben. Al crear un
+#   datastore nuevo (modo 'new'), una persona añade aquí la entrada ANTES de
+#   lanzar el flujo.
+#
+# Estructura:
+#   <UNIDAD_FUNCIONAL>:            # = clave de target_connections.yaml
+#     datastores:
+#       - datastore: <nombre>      # único global; = carpeta instance/<nombre>/ en el motor
+#         server:    <canónico>    # nombre de servicio del motor donde vive
+#         kind:      kafka|db2     # tipo de datastore
+#
+# El datastore DB2 origen es FIJO/COMPARTIDO por entorno (un único motor DB2,
+# un único usuario con los mismos privilegios para leer el log de todos los
+# subsistemas), así que se repite como referencia en cada unidad funcional que
+# replica desde ese DB2. El multi-datastore real aplica al lado KAFKA (destino).
+
+# ── Preproduction (PRE) ──────────────────────────────────────────────────
+KAFKA_PILOTO_01_PRE:
+  datastores:
+    - datastore: IIDR_GR_DB2_KFK_R01_AWS_PRE
+      server:    iidr-gr-db2-kfk-r01-aws-pre.es.mapfre.net
+      kind:      kafka
+    - datastore: IIDR_GR_DB2_DB2_E01_AWS_PRE
+      server:    iidr-gr-db2-db2-e01-aws-pre.es.mapfre.net
+      kind:      db2
+    - datastore: IIDR_GR_DB2_KFK_R02_AWS_PRE
+      server:    iidr-gr-db2-kfk-r01-aws-pre.es.mapfre.net
+      kind:      kafka

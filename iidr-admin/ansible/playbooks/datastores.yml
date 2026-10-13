@@ -1,0 +1,887 @@
+---
+## Gestión de DATASTORES IIDR vía AAP.
+##
+## Patrón de 2 plays validado (ver iidr_smoke_test.yml):
+##   Play 1 (localhost): valida extra-vars, resuelve el secreto AWS SM y
+##     registra el host destino (add_host).
+##   Play 2 (hosts: el AS del entorno por SSH): ejecuta iidr.sh datastore <op>.
+##
+## Extra-vars (AAP survey / -e):
+##   iidr_env   dev|pre|pro           (default dev)
+##   action     read|create|create-instance|delete|backup|enable|grant|ensure-settings|validate   (default read)
+##   name       <nombre datastore>    (obligatorio salvo read/list)
+##   funcional  <clave target_connections.yaml / iidr_datastores.yaml>
+##              (obligatorio si ensure-settings|grant; opcional en validate)
+##   host       <host del agente CDC> (obligatorio si create)
+##   port       <puerto del agente>   (obligatorio si create | create-instance)
+##   description <texto>              (opcional, solo create)
+##
+## ALTA COMPLETA de un datastore Kafka NUEVO (R02, R03...), en orden:
+##   create-instance -> enable -> create -> ensure-settings -> grant -> validate
+##   (create-instance crea la instancia EN EL MOTOR; enable la ARRANCA; create la
+##    registra EN EL AS). OJO AL ORDEN: el 'add access datastore' del AS conecta
+##    al motor para validar, así que la instancia debe estar ARRANCADA y con el
+##    puerto en LISTEN ANTES del create, o da timeout rc=-2001. Por eso enable va
+##    antes que create (igual que iidr-install: instancia -> systemd -> AS). Pasa
+##    'port' en el enable del alta para que espere a que el puerto escuche.
+##
+## action=read:
+##   - sin 'name'  -> datastore list
+##   - con 'name'  -> datastore show --name <name>
+##
+## action=create-instance:
+##   - 'name' + 'port' obligatorios. Va al MOTOR Kafka. Crea la INSTANCIA del
+##     engine (carpeta instance/<name>/ con su md.dbn al puerto dado) invocando
+##     el wrapper de iidr-install iidr-setup-instance.py por NFS
+##     (dmimportconfiguration). TCP_PORT=<port> evita la colisión con el 11701
+##     del R01 en el mismo motor. Tras el import, para el dmts64 residual con
+##     dmshutdown (si no, systemd colisiona en el enable).
+##   - DS_PASSWORD_ENC = pwd cifrada del tsuser del motor (IIDR_KAFKA_DS_PASSWORD_ENC).
+##   - Idempotente: si la instancia ya existe -> el wrapper devuelve SKIPPED.
+##   - LÍMITE por motor (memoria física 16 GB / 8 GB -Xmx por instancia):
+##     iidr_kafka_max_instances_by_env (dev:2 pre:3 pro:2). Aborta si ya hay >=
+##     ese nº de instancias reales (carpetas de instance/ sin 'backup'). No aplica
+##     si la instancia pedida ya existe (idempotencia).
+##   - NO registra en el AS (eso es action=create) ni rellena properties
+##     (action=ensure-settings) ni habilita la unit (action=enable).
+##
+## action=create:
+##   - 'name' + 'host' + 'port' obligatorios ->
+##       datastore create --name <name> --host <host> --port <port> [--description D]
+##   - Solo REGISTRA el datastore en el AS (add access datastore ... multiuser yes);
+##     NO consulta el motor DB2/Kafka, así que funciona aunque el motor no arranque.
+##   - Usa APP-cdcauto (el del iidr.properties desplegado). Ambos usuarios APP-*
+##     son sysadmin; se asume que cdcauto puede crear (como ya puede borrar). Si
+##     el AS lo rechazara por permisos, el mensaje de error (rc) lo dirá claro y
+##     habría que pasar a properties-temporal con APP-cdcadmin.
+##   - Idempotente: si el datastore ya existe -> SKIPPED (no falla).
+##   - Alcance INCREMENTAL: este 'create' hace SOLO el registro en el AS. El
+##     resto del alta (systemctl enable cdc_kafka_agent@<DS>, ensure-settings,
+##     grants) se encadena aparte (ver ciclo de vida del datastore).
+##
+## action=grant:
+##   - 'name' + 'funcional' obligatorios. Concede 'access connection' sobre el
+##     datastore a los GRUPOS LDAP del AS (NO a usuarios APP-* individuales:
+##     eso da ERR3010 "user could not be found"; el AS no resuelve un usuario
+##     suelto contra LDAP, pero los grupos sí). Grupos: sysadministrator +
+##     monitor (los únicos que necesitan conexión al datastore). Replica el
+##     'paso 8' de iidr-install, que iidr-admin asume al crear datastores nuevos.
+##   - Deriva el TIPO (db2|kafka) del datastore buscando 'name' dentro de la
+##     'funcional' en el inventario ligero iidr_datastores.yaml, para elegir las
+##     credenciales de motor correctas (DB_USER/DB_PASSWORD):
+##       db2   -> IIDR_DB2_DS_USER_ENC / IIDR_DB2_DS_PASSWORD_ENC   (usuario BD DB2)
+##       kafka -> IIDR_KAFKA_DS_USER_ENC / IIDR_KAFKA_DS_PASSWORD_ENC (tsuser)
+##     Van cifradas (IBM Encryptor) como DB_USER_ENC/DB_PASSWORD_ENC; iidr.sh las
+##     descifra. Idempotente por grupo: si ya tiene access connection -> SKIPPED
+##     (ese caso ni usa las credenciales).
+##   - Usa APP-cdcauto (iidr.properties desplegado): es sysadmin y los grupos ya
+##     existen (no es el primer datastore), así que puede conceder. El PRIMER
+##     grant histórico (bootstrap del AS) lo hizo el usuario inicial; aquí estamos
+##     en datastores adicionales. Si cdcauto no pudiera, pasar a cdcadmin temporal.
+##
+## action=delete:
+##   - 'name' obligatorio -> datastore delete --name <name>
+##   - Usa APP-cdcauto (el del iidr.properties desplegado): ambos usuarios
+##     APP-* son sysadmin y APP-cdcauto tiene grant sobre el datastore, así
+##     que puede borrarlo sin properties temporal de APP-cdcadmin.
+##   - Idempotente: si el datastore no existe -> SKIPPED (no falla).
+##   - OJO: IIDR rechaza el borrado si el datastore tiene suscripciones
+##     activas; hay que borrarlas antes (subscription delete).
+##   - borra SOLO el registro en el AS; NO borra el conf/ del motor. Aun así,
+##     si el datastore lleva tiempo funcionando, conviene action=backup ANTES
+##     (salvaguarda de los properties de la instancia y de los KCOPs).
+##
+## action=enable:
+##   - 'name' obligatorio. Va al MOTOR Kafka. Habilita y arranca la instancia
+##     systemd del datastore con la template unit, en DOS pasos:
+##       systemctl enable cdc_kafka_agent@<name>   (persiste a reboot)
+##       systemctl start  cdc_kafka_agent@<name>   (arranca ya)
+##     Se usan 2 comandos (no 'enable --now') porque la regla sudoers matchea
+##     los argumentos literalmente y no cubre el flag --now. Idempotente.
+##   - Paso del alta de un datastore NUEVO (tras create en el AS). El datastore
+##     01 lo habilita iidr-install en la instalación inicial; esto es para los
+##     adicionales (R02, R03...).
+##   - REQUIERE sudoers NOPASSWD de 'systemctl enable cdc_kafka_agent@*' y
+##     'systemctl start cdc_kafka_agent@*' para cdcuser (lo provee iidr-install;
+##     ver pliego de sudoers). Sin esas reglas, el enable falla por privilegios.
+##
+## action=backup:
+##   - 'name' obligatorio. Va al MOTOR Kafka (donde vive el conf/), no al AS.
+##   - Respalda los *.properties del conf/ de la instancia (properties de la
+##     instancia: kafkaproducer/consumer/logging + los <SUB>.properties de los
+##     KCOPs) a una carpeta HERMANA de la instancia, con timestamp:
+##       <instance_root>/<name>_conf_backup_<YYYYmmddTHHMMSS>/
+##     (fuera del conf/ para no contaminarlo ni autocopiarse).
+##   - Pensado como paso PREVIO a un delete de un datastore con historia. No
+##     borra nada. Idempotente por timestamp (cada ejecución crea su carpeta).
+##
+## action=ensure-settings:
+##   - 'name' (datastore) + 'funcional' (clave de target_connections.yaml,
+##     ej. KAFKA_PILOTO_01_PRE) obligatorios.
+##   - Rellena en el MOTOR Kafka los ficheros de conexión al broker:
+##       <instance_root>/<name>/conf/kafkaproducer.properties
+##       <instance_root>/<name>/conf/kafkaconsumer.properties
+##     desde la plantilla kafka_engine.properties.j2, con los settings de la
+##     unidad funcional (de target_connections.yaml) + el client_secret OAuth
+##     de AWS SM. Un datastore recién instalado por iidr-install los tiene
+##     vacíos/esqueleto; esto los "cablea" a la unidad funcional.
+##   - Va al host del MOTOR Kafka. No usa iidr.sh.
+##
+## action=validate:
+##   - 'name' obligatorio. 'funcional' opcional.
+##   - Comprueba las 3 patas del datastore, cada play falla por su cuenta:
+##       (AS)    datastore existe (datastore show --name <name>).
+##       (motor) la instancia existe (dir conf del datastore).
+##       (motor) settings puestos (kafkaproducer.properties con bootstrap.servers).
+##     Si se pasa 'funcional', además comprueba que el bootstrap de los
+##     properties coincide con esa entrada de target_connections.yaml.
+##   - Toca DOS hosts: el AS del entorno (iidr_exec_host) y el motor Kafka.
+##
+## (grant se añadirá más adelante: necesita DB_USER_ENC/DB_PASSWORD_ENC por tipo
+##  de motor, y posiblemente APP-cdcadmin vía IIDR_PROPERTIES_FILE temporal.)
+##
+## Requisitos AAP: EE custom + Machine Credential (ec2-user) +
+## Custom Credential AWS SM (cdc-custom-credential).
+
+# ══════════════════════════════════════════════════════════════════════
+# PLAY 1 — localhost: validar, resolver secreto, registrar host destino
+# ══════════════════════════════════════════════════════════════════════
+- name: "Preparar (localhost) — datastore"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/all/vars.yml"
+
+  tasks:
+    - name: "Resolver iidr_env / action"
+      ansible.builtin.set_fact:
+        iidr_env: "{{ iidr_env | default('dev', true) }}"
+        action: "{{ action | default('read', true) }}"
+
+    - name: "Validar extra-vars"
+      ansible.builtin.assert:
+        that:
+          - iidr_env in ['dev', 'pre', 'pro']
+          - action in ['read', 'create', 'create-instance', 'delete', 'backup', 'enable', 'grant', 'ensure-settings', 'validate']
+          - action not in ['create', 'create-instance', 'delete', 'backup', 'enable', 'grant', 'ensure-settings', 'validate'] or (name is defined and name | length > 0)
+          - action != 'create' or (host is defined and host | length > 0 and port is defined and (port | string) | length > 0)
+          - action != 'create-instance' or (port is defined and (port | string) | length > 0)
+          - action not in ['ensure-settings', 'grant'] or (funcional is defined and funcional | length > 0)
+        fail_msg: >-
+          Faltan/erróneas extra-vars. Requeridas: iidr_env (dev|pre|pro),
+          action (read|create|create-instance|delete|backup|enable|grant|ensure-settings|validate).
+          name=<datastore> obligatorio salvo read/list.
+          host=<host agente> y port=<puerto> obligatorios si action=create;
+          port=<puerto> obligatorio si action=create-instance.
+          funcional=<clave target_connections.yaml> obligatorio si
+          action=ensure-settings|grant (opcional en validate).
+
+    - name: "Cargar secrets del entorno desde AWS SM"
+      ansible.builtin.set_fact:
+        _vault: >-
+          {{ (aws_secret_json_dev  if iidr_env == 'dev'  else
+              aws_secret_json_pre  if iidr_env == 'pre'  else
+              aws_secret_json_pro) | from_json }}
+      no_log: true
+
+    - name: "Verificar clave del truststore en el secreto (sin mostrar valor)"
+      ansible.builtin.assert:
+        that:
+          - iidr_key_tls_password in _vault
+          - _vault[iidr_key_tls_password] | length > 0
+        fail_msg: "El secreto no contiene '{{ iidr_key_tls_password }}'."
+
+    # ── read/create/delete/validate: destino el AS del entorno, ejecuta iidr.sh ──
+    # (validate usa 'datastore show --name' para la pata AS; read/delete como antes;
+    #  create pasa host/port/description)
+    - name: "Registrar host AS {{ iidr_exec_host }} (read/create/delete/validate)"
+      ansible.builtin.add_host:
+        name: "{{ iidr_exec_host }}"
+        groups: iidr_exec
+        _tls_pwd: "{{ _vault[iidr_key_tls_password] }}"
+        _action: "{{ action }}"
+        _name: "{{ name | default('') }}"
+        _host: "{{ host | default('') }}"
+        _port: "{{ port | default('') }}"
+        _description: "{{ description | default('') }}"
+      no_log: true
+      when: action in ['read', 'create', 'delete', 'validate']
+
+    # ── grant: destino el AS, concede access connection a los grupos LDAP ──
+    # Deriva el tipo (db2|kafka) del inventario ligero para elegir las
+    # credenciales del motor, y resuelve esas credenciales del vault.
+    - name: "grant — leer inventario ligero de datastores"
+      ansible.builtin.set_fact:
+        _ds_inv: >-
+          {{ (lookup('ansible.builtin.file',
+                     playbook_dir ~ '/../../../cdc-controller/config/inventory_deployments/iidr_datastores.yaml')
+              | from_yaml) }}
+      when: action == 'grant'
+
+    - name: "grant — validar funcional y derivar el 'kind' del datastore 'name'"
+      ansible.builtin.set_fact:
+        _grant_kind: >-
+          {{ (_ds_inv[funcional].datastores
+              | selectattr('datastore', '==', name) | map(attribute='kind')
+              | list | first | default('')) }}
+      when: action == 'grant'
+
+    - name: "grant — comprobar que el datastore existe en la funcional y tiene kind válido"
+      ansible.builtin.assert:
+        that:
+          - funcional in _ds_inv
+          - _grant_kind in ['db2', 'kafka']
+        fail_msg: >-
+          El datastore '{{ name }}' no está en la funcional '{{ funcional }}' del
+          inventario ligero, o su 'kind' no es db2|kafka (kind='{{ _grant_kind }}').
+      when: action == 'grant'
+
+    - name: "grant — resolver las claves de credenciales del motor según el kind"
+      ansible.builtin.set_fact:
+        _grant_user_key: "{{ iidr_key_db2_user_enc if _grant_kind == 'db2' else iidr_key_kafka_user_enc }}"
+        _grant_pwd_key: "{{ iidr_key_db2_password_enc if _grant_kind == 'db2' else iidr_key_kafka_password_enc }}"
+      when: action == 'grant'
+
+    - name: "grant — verificar que las credenciales del motor están en el secreto"
+      ansible.builtin.assert:
+        that:
+          - _grant_user_key in _vault and _vault[_grant_user_key] | length > 0
+          - _grant_pwd_key in _vault and _vault[_grant_pwd_key] | length > 0
+        fail_msg: >-
+          El secreto AWS SM no contiene las credenciales del motor {{ _grant_kind }}
+          ({{ _grant_user_key }} / {{ _grant_pwd_key }}).
+      when: action == 'grant'
+
+    - name: "grant — registrar host AS {{ iidr_exec_host }}"
+      ansible.builtin.add_host:
+        name: "{{ iidr_exec_host }}"
+        groups: iidr_exec
+        _tls_pwd: "{{ _vault[iidr_key_tls_password] }}"
+        _action: "{{ action }}"
+        _name: "{{ name }}"
+        _grant_kind: "{{ _grant_kind }}"
+        _grant_groups: "{{ iidr_datastore_grant_groups }}"
+        _db_user_enc: "{{ _vault[_grant_user_key] }}"
+        _db_password_enc: "{{ _vault[_grant_pwd_key] }}"
+      no_log: true
+      when: action == 'grant'
+
+    # ── ensure-settings: destino el MOTOR Kafka, renderiza properties ────
+    - name: "Leer entrada de la unidad funcional en target_connections.yaml"
+      ansible.builtin.set_fact:
+        _tc: >-
+          {{ (lookup('ansible.builtin.file',
+                     playbook_dir ~ '/../../../cdc-controller/config/inventory_connections/target_connections.yaml')
+              | from_yaml) }}
+      when: action == 'ensure-settings'
+
+    - name: "Resolver settings de la unidad funcional (defaults + entrada)"
+      ansible.builtin.set_fact:
+        _conn: "{{ (_tc.defaults | default({})) | combine(_tc[funcional]) }}"
+      when: action == 'ensure-settings'
+
+    - name: "Validar que la entrada funcional existe y es Kafka"
+      ansible.builtin.assert:
+        that:
+          - funcional in _tc
+          - _conn.target_engine | default('') == 'KAFKA'
+          - _conn.bootstrap_servers | default('') | length > 0
+          - _conn.client_secret_credential | default('') | length > 0
+        fail_msg: >-
+          '{{ funcional }}' no existe en target_connections.yaml, no es KAFKA, o
+          le faltan campos (bootstrap_servers / client_secret_credential).
+      when: action == 'ensure-settings'
+
+    - name: "Verificar el client_secret OAuth en el secreto (sin mostrar valor)"
+      ansible.builtin.assert:
+        that:
+          - _conn.client_secret_credential in _vault
+          - _vault[_conn.client_secret_credential] | length > 0
+        fail_msg: >-
+          El secreto AWS SM no contiene la clave
+          '{{ _conn.client_secret_credential }}' (client_secret_credential).
+      when: action == 'ensure-settings'
+
+    - name: "Registrar host motor Kafka {{ iidr_kafka_engine_host }} (ensure-settings)"
+      ansible.builtin.add_host:
+        name: "{{ iidr_kafka_engine_host }}"
+        groups: iidr_kafka_engine
+        _action: "{{ action }}"
+        _name: "{{ name }}"
+        _conf_dir: "{{ iidr_kafka_instance_root }}/{{ name }}/conf"
+        _ke_bootstrap_servers: "{{ _conn.bootstrap_servers }}"
+        _ke_oauth_endpoint_url: "{{ _conn.oauth_endpoint_url }}"
+        _ke_client_id: "{{ _conn.client_id }}"
+        _ke_api_scope: "{{ _conn.api_scope }}"
+        _ke_cluster_id: "{{ _conn.cluster_id }}"
+        _ke_identity_pool: "{{ _conn.identity_pool }}"
+        _ke_schema_registry_url: "{{ _conn.schema_registry_url }}"
+        _ke_schema_registry_id: "{{ _conn.schema_registry_id }}"
+        _ke_client_secret: "{{ _vault[_conn.client_secret_credential] }}"
+      no_log: true
+      when: action == 'ensure-settings'
+
+    # ── validate: además del AS (arriba), registra el MOTOR para comprobar
+    #    instancia + settings. Si se pasó 'funcional', lee el bootstrap
+    #    esperado de target_connections.yaml para contrastarlo.
+    - name: "Leer target_connections.yaml para validate (solo si hay funcional)"
+      ansible.builtin.set_fact:
+        _tc_val: >-
+          {{ (lookup('ansible.builtin.file',
+                     playbook_dir ~ '/../../../cdc-controller/config/inventory_connections/target_connections.yaml')
+              | from_yaml) }}
+      when: action == 'validate' and funcional is defined and funcional | length > 0
+
+    - name: "Resolver bootstrap esperado de la funcional (validate con funcional)"
+      ansible.builtin.set_fact:
+        _expected_bootstrap: >-
+          {{ ((_tc_val.defaults | default({})) | combine(_tc_val[funcional])).bootstrap_servers }}
+      when: action == 'validate' and funcional is defined and funcional | length > 0
+
+    - name: "Registrar host motor Kafka {{ iidr_kafka_engine_host }} (validate)"
+      ansible.builtin.add_host:
+        name: "{{ iidr_kafka_engine_host }}"
+        groups: iidr_kafka_engine
+        _action: "{{ action }}"
+        _name: "{{ name }}"
+        _conf_dir: "{{ iidr_kafka_instance_root }}/{{ name }}/conf"
+        _expected_bootstrap: "{{ _expected_bootstrap | default('') }}"
+      when: action == 'validate'
+
+    # ── backup: destino el MOTOR Kafka, respalda los *.properties del conf ──
+    - name: "Registrar host motor Kafka {{ iidr_kafka_engine_host }} (backup)"
+      ansible.builtin.add_host:
+        name: "{{ iidr_kafka_engine_host }}"
+        groups: iidr_kafka_engine
+        _action: "{{ action }}"
+        _name: "{{ name }}"
+        _conf_dir: "{{ iidr_kafka_instance_root }}/{{ name }}/conf"
+        # carpeta hermana de la instancia (NO dentro del conf), con timestamp.
+        _backup_dir: "{{ iidr_kafka_instance_root }}/{{ name }}_conf_backup_{{ now(true, '%Y%m%dT%H%M%S') }}"
+      when: action == 'backup'
+
+    # ── enable: destino el MOTOR Kafka, habilita+arranca la unit del datastore ──
+    - name: "Registrar host motor Kafka {{ iidr_kafka_engine_host }} (enable)"
+      ansible.builtin.add_host:
+        name: "{{ iidr_kafka_engine_host }}"
+        groups: iidr_kafka_engine
+        _action: "{{ action }}"
+        _name: "{{ name }}"
+        # la instancia debe existir en el motor para poder habilitarla.
+        _conf_dir: "{{ iidr_kafka_instance_root }}/{{ name }}/conf"
+        _unit: "cdc_kafka_agent@{{ name }}"
+        # port OPCIONAL: si se pasa, enable espera a que el puerto del agente esté
+        # en LISTEN (no basta is-active: systemd da 'active' antes de que dmts64
+        # abra el TCP → un 'create' en el AS justo después da timeout rc=-2001).
+        _port: "{{ port | default('') | string }}"
+      when: action == 'enable'
+
+    # ── create-instance: destino el MOTOR Kafka, crea la instancia del engine ──
+    # Invoca el wrapper iidr-setup-instance.py de iidr-install (por NFS): render
+    # del XML + dmimportconfiguration. DS_PASSWORD_ENC = pwd cifrada del tsuser
+    # del motor Kafka (IIDR_KAFKA_DS_PASSWORD_ENC). NO registra en el AS: eso es
+    # action=create aparte.
+    - name: "create-instance — verificar DS_PASSWORD_ENC (tsuser kafka) en el secreto"
+      ansible.builtin.assert:
+        that:
+          - iidr_key_kafka_password_enc in _vault
+          - _vault[iidr_key_kafka_password_enc] | length > 0
+        fail_msg: >-
+          El secreto AWS SM no contiene '{{ iidr_key_kafka_password_enc }}'
+          (pwd cifrada del tsuser del motor Kafka, necesaria para crear la instancia).
+      when: action == 'create-instance'
+
+    - name: "Registrar host motor Kafka {{ iidr_kafka_engine_host }} (create-instance)"
+      ansible.builtin.add_host:
+        name: "{{ iidr_kafka_engine_host }}"
+        groups: iidr_kafka_engine
+        _action: "{{ action }}"
+        _name: "{{ name }}"
+        _port: "{{ port | string }}"
+        _conf_dir: "{{ iidr_kafka_instance_root }}/{{ name }}/conf"
+        _instance_root: "{{ iidr_kafka_instance_root }}"
+        _max_instances: "{{ iidr_kafka_max_instances | int }}"
+        _unit: "cdc_kafka_agent@{{ name }}"
+        _ds_password_enc: "{{ _vault[iidr_key_kafka_password_enc] }}"
+      no_log: true
+      when: action == 'create-instance'
+
+# ══════════════════════════════════════════════════════════════════════
+# PLAY 2 — en el AS del entorno (SSH real): ejecutar iidr.sh datastore <op>
+# ══════════════════════════════════════════════════════════════════════
+- name: "Ejecutar en el AS del entorno — datastore (read/create/delete/validate/grant)"
+  hosts: iidr_exec
+  gather_facts: false
+  become: true
+  become_user: cdcuser
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/all/vars.yml"
+
+  tasks:
+    # read:     'datastore show --name X' si hay name; si no, 'datastore list'.
+    # create:   'datastore create --name X --host H --port P [--description "D"]'.
+    # delete:   'datastore delete --name X' (name validado en Play 1).
+    # validate: 'datastore show --name X' (pata AS: falla si no existe).
+    - name: "Componer comando iidr.sh"
+      ansible.builtin.set_fact:
+        _iidr_cmd: >-
+          {{ iidr_sh_path }} datastore
+          {{ ('create --name ' ~ _name ~ ' --host ' ~ _host ~ ' --port ' ~ _port
+                ~ (' --description ' ~ ('"' ~ _description ~ '"') if _description | length > 0 else '')) if _action == 'create'
+             else 'delete --name ' ~ _name if _action == 'delete'
+             else ('show --name ' ~ _name if _action == 'validate' or _name | length > 0
+                   else 'list') }}
+      when: _action != 'grant'
+
+    - name: "datastore ({{ _action }})"
+      ansible.builtin.command: "{{ _iidr_cmd }}"
+      environment:
+        TLS_TRUST_STORE_PASSWORD: "{{ _tls_pwd }}"
+      register: iidr_result
+      changed_when: false
+      failed_when: false
+      no_log: true
+      when: _action != 'grant'
+
+    - name: "Resultado crudo (rc / stdout / stderr)"
+      ansible.builtin.debug:
+        msg:
+          - "cmd: {{ _iidr_cmd }}"
+          - "rc: {{ iidr_result.rc | default('N/A') }}"
+          - "stdout: {{ iidr_result.stdout | default('(vacío)') }}"
+          - "stderr: {{ iidr_result.stderr | default('(vacío)') }}"
+      when: _action != 'grant'
+
+    - name: "Parsear JSON (solo si stdout parece JSON)"
+      ansible.builtin.set_fact:
+        _out: "{{ iidr_result.stdout | from_json }}"
+      when:
+        - _action != 'grant'
+        - iidr_result.stdout | default('') | trim | first == '{'
+
+    - name: "RESULTADO"
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'OK — status=' ~ _out.status
+             ~ (', datastores=' ~ (_out.data | length)
+                if _action not in ['create', 'delete'] and _out.data is iterable
+                   and _out.data is not string and _out.data is not mapping
+                else (' (datastore ' ~ _name ~ ')' if _action in ['create', 'delete'] else ''))
+             if _out is defined and _out.status is defined
+             else 'FALLO — revisar rc/stdout/stderr arriba' }}
+      when: _action != 'grant'
+
+    - name: "Fallar si iidr.sh devolvió ERROR"
+      ansible.builtin.assert:
+        that:
+          - _out is defined
+          - _out.status is defined
+          - _out.status in ['OK', 'SKIPPED']
+        fail_msg: >-
+          {{ '[validate pata AS] el datastore ' ~ _name ~ ' NO existe en el Access Server'
+             if _action == 'validate'
+             else 'iidr.sh datastore ' ~ _action ~ ' devolvió ERROR o salida no válida.' }}
+        success_msg: >-
+          {{ '[validate pata AS] datastore ' ~ _name ~ ' existe en el AS — OK'
+             if _action == 'validate' else 'datastore ' ~ _action ~ ' OK.' }}
+      when: _action != 'grant'
+
+    # ── grant: iidr.sh datastore grant --name X --user <GRUPO>, uno por grupo ──
+    # DB_USER_ENC/DB_PASSWORD_ENC (cifradas) van en el environment; iidr.sh las
+    # descifra para dbUser/dbPassword. Idempotente por grupo (SKIPPED si ya tiene
+    # access connection). --user recibe el NOMBRE DEL GRUPO LDAP (no un usuario).
+    - name: "datastore grant a los grupos LDAP"
+      ansible.builtin.command: >-
+        {{ iidr_sh_path }} datastore grant --name {{ _name }} --user {{ item }}
+      environment:
+        TLS_TRUST_STORE_PASSWORD: "{{ _tls_pwd }}"
+        DB_USER_ENC: "{{ _db_user_enc }}"
+        DB_PASSWORD_ENC: "{{ _db_password_enc }}"
+      register: _grant_res
+      changed_when: false
+      failed_when: false
+      no_log: true
+      loop: "{{ _grant_groups }}"
+      loop_control:
+        label: "{{ item }}"
+      when: _action == 'grant'
+
+    - name: "grant — resultado por grupo"
+      ansible.builtin.debug:
+        msg: >-
+          grupo {{ item.item }}: rc={{ item.rc | default('N/A') }} —
+          {{ (item.stdout | from_json).status | default('?')
+             if (item.stdout | default('') | trim | first == '{')
+             else 'salida no JSON (revisar)' }}
+          {{ (item.stdout | from_json).message | default('')
+             if (item.stdout | default('') | trim | first == '{') else item.stderr | default('') }}
+      loop: "{{ _grant_res.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item | default('?') }}"
+      when: _action == 'grant'
+
+    - name: "grant — fallar si algún grupo no quedó OK/SKIPPED"
+      ansible.builtin.assert:
+        that:
+          - (item.stdout | default('') | trim | first == '{')
+          - (item.stdout | from_json).status in ['OK', 'SKIPPED']
+        fail_msg: >-
+          [grant] el grant al grupo '{{ item.item }}' sobre '{{ _name }}'
+          ({{ _grant_kind }}) falló: rc={{ item.rc | default('?') }}
+          {{ (item.stdout | from_json).message | default(item.stderr | default('')) }}
+        success_msg: "[grant] grupo {{ item.item }} OK/SKIPPED."
+      loop: "{{ _grant_res.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item | default('?') }}"
+      when: _action == 'grant'
+
+# ══════════════════════════════════════════════════════════════════════
+# PLAY 3 — en el MOTOR Kafka (SSH real): ensure-settings (rellenar
+#          properties), validate (comprobar instancia + settings) y
+#          backup (respaldar los *.properties del conf)
+# ══════════════════════════════════════════════════════════════════════
+- name: "Motor Kafka — ensure-settings / validate / backup (properties)"
+  hosts: iidr_kafka_engine
+  gather_facts: false
+  become: true
+  become_user: cdcuser
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/all/vars.yml"
+
+  tasks:
+    # ── Común a ensure-settings/validate/backup: la instancia debe existir ──
+    # create-instance NO lo exige (es quien CREA el conf); enable tampoco lo
+    # comprueba aquí (su propio flujo falla claro si no existe).
+    - name: "Comprobar que existe el conf de la instancia del datastore"
+      ansible.builtin.stat:
+        path: "{{ _conf_dir }}"
+      register: _conf_stat
+      when: _action in ['ensure-settings', 'validate', 'backup']
+
+    - name: "Fallar si el conf del datastore no existe en el motor"
+      ansible.builtin.assert:
+        that:
+          - _conf_stat.stat.exists
+          - _conf_stat.stat.isdir
+        fail_msg: >-
+          {{ ('[validate pata motor] ' if _action == 'validate' else '') }}No existe el
+          directorio de instancia '{{ _conf_dir }}' en el motor.
+          ¿El datastore '{{ _name }}' está instalado en este servidor?
+      when: _action in ['ensure-settings', 'validate', 'backup']
+
+    # ── ensure-settings: renderizar los properties ──────────────────────
+    - name: "Renderizar kafkaproducer.properties y kafkaconsumer.properties"
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../templates/kafka_engine.properties.j2"
+        dest: "{{ _conf_dir }}/{{ item.file }}"
+        owner: cdcuser
+        group: cdcadmin
+        mode: "0600"
+      vars:
+        ke_bootstrap_servers: "{{ _ke_bootstrap_servers }}"
+        ke_oauth_endpoint_url: "{{ _ke_oauth_endpoint_url }}"
+        ke_client_id: "{{ _ke_client_id }}"
+        ke_api_scope: "{{ _ke_api_scope }}"
+        ke_cluster_id: "{{ _ke_cluster_id }}"
+        ke_identity_pool: "{{ _ke_identity_pool }}"
+        ke_schema_registry_url: "{{ _ke_schema_registry_url }}"
+        ke_schema_registry_id: "{{ _ke_schema_registry_id }}"
+        ke_client_secret: "{{ _ke_client_secret }}"
+        ke_is_producer: "{{ item.producer }}"
+      loop:
+        - { file: "kafkaproducer.properties", producer: true }
+        - { file: "kafkaconsumer.properties", producer: false }
+      loop_control:
+        label: "{{ item.file }}"
+      no_log: true
+      when: _action == 'ensure-settings'
+
+    - name: "RESULTADO ensure-settings"
+      ansible.builtin.debug:
+        msg: >-
+          OK — settings del datastore {{ _name }} aplicados en
+          {{ _conf_dir }} (kafkaproducer.properties + kafkaconsumer.properties).
+          Para que el motor los tome, reiniciar la instancia del datastore.
+      when: _action == 'ensure-settings'
+
+    # ── validate: comprobar que los settings están puestos ──────────────
+    - name: "Leer kafkaproducer.properties (validate)"
+      ansible.builtin.slurp:
+        src: "{{ _conf_dir }}/kafkaproducer.properties"
+      register: _prod_raw
+      when: _action == 'validate'
+
+    # regex_findall con multiline=true: devuelve la lista de valores capturados
+    # por el grupo (.+) en cada línea que empiece por 'bootstrap.servers='.
+    # Más robusto que split('\n') (Ansible lo trata como literal \n) y que
+    # regex_search con backref (el '\1' sufre escaping en la cadena Jinja).
+    - name: "Extraer bootstrap.servers del fichero (validate)"
+      ansible.builtin.set_fact:
+        _actual_bootstrap: >-
+          {{ ((_prod_raw.content | b64decode)
+              | regex_findall('^bootstrap.servers=(.+)$', multiline=true)
+              | default([''], true) | first | default('')) | trim }}
+      when: _action == 'validate'
+
+    - name: "Validar que los settings del datastore están puestos"
+      ansible.builtin.assert:
+        that:
+          - _actual_bootstrap | length > 0
+        fail_msg: >-
+          [validate pata motor] El datastore '{{ _name }}' NO tiene settings:
+          kafkaproducer.properties no tiene bootstrap.servers (vacío/esqueleto).
+          Ejecuta action=ensure-settings con la unidad funcional.
+        success_msg: "[validate pata motor] settings puestos (bootstrap={{ _actual_bootstrap }})"
+      when: _action == 'validate'
+
+    - name: "Validar que el bootstrap coincide con la funcional (si se pasó)"
+      ansible.builtin.assert:
+        that:
+          - _actual_bootstrap == _expected_bootstrap
+        fail_msg: >-
+          [validate pata motor] El bootstrap del datastore ('{{ _actual_bootstrap }}')
+          NO coincide con el de la funcional '{{ funcional }}' ('{{ _expected_bootstrap }}').
+        success_msg: >-
+          [validate pata motor] bootstrap coincide con la funcional '{{ funcional }}'.
+      when:
+        - _action == 'validate'
+        - _expected_bootstrap | default('') | length > 0
+
+    - name: "RESULTADO validate (motor)"
+      ansible.builtin.debug:
+        msg: >-
+          [validate] datastore {{ _name }}: instancia OK + settings OK
+          {{ '(bootstrap coincide con ' ~ funcional ~ ')'
+             if _expected_bootstrap | default('') | length > 0
+             else '(sin contraste de funcional)' }}.
+          Pata AS validada en el play anterior.
+      when: _action == 'validate'
+
+    # ── backup: respaldar los *.properties del conf a una carpeta hermana ──
+    - name: "Listar los *.properties del conf de la instancia (backup)"
+      ansible.builtin.find:
+        paths: "{{ _conf_dir }}"
+        patterns: "*.properties"
+        file_type: file
+      register: _backup_src
+      when: _action == 'backup'
+
+    - name: "Fallar si no hay ningún .properties que respaldar (backup)"
+      ansible.builtin.assert:
+        that:
+          - _backup_src.files | length > 0
+        fail_msg: >-
+          [backup] El conf '{{ _conf_dir }}' no tiene ningún *.properties.
+          Nada que respaldar: revisa que el datastore '{{ _name }}' sea el correcto.
+      when: _action == 'backup'
+
+    - name: "Crear el directorio de backup con timestamp (backup)"
+      ansible.builtin.file:
+        path: "{{ _backup_dir }}"
+        state: directory
+        owner: cdcuser
+        group: cdcadmin
+        mode: "0700"
+      when: _action == 'backup'
+
+    - name: "Copiar los *.properties al directorio de backup (backup)"
+      ansible.builtin.copy:
+        src: "{{ item.path }}"
+        dest: "{{ _backup_dir }}/"
+        remote_src: true
+        owner: cdcuser
+        group: cdcadmin
+        mode: preserve
+      loop: "{{ _backup_src.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      when: _action == 'backup'
+
+    - name: "RESULTADO backup"
+      ansible.builtin.debug:
+        msg: >-
+          [backup] datastore {{ _name }}: respaldados
+          {{ _backup_src.files | length }} fichero(s) *.properties
+          ({{ _backup_src.files | map(attribute='path') | map('basename') | join(', ') }})
+          en {{ _backup_dir }}.
+      when: _action == 'backup'
+
+    # ── enable: habilitar+arrancar la unit del datastore (persistente a reboot) ──
+    # Se ejecuta en DOS pasos ('enable' + 'start', no 'enable --now') porque la
+    # regla sudoers NOPASSWD matchea los argumentos LITERALMENTE: autoriza
+    # 'systemctl enable cdc_kafka_agent@*' y 'systemctl start cdc_kafka_agent@*',
+    # pero NO 'systemctl enable --now cdc_kafka_agent@*' (el flag --now extra no
+    # casa con la regla → sudo pide password). 'enable' + 'start' equivale a
+    # 'enable --now' usando reglas que ya existen y están probadas. El stat del
+    # conf (arriba) ya ha garantizado que la instancia existe en este motor.
+    - name: "Habilitar la unit {{ _unit }} (persistente a reboot)"
+      ansible.builtin.command: "sudo -n systemctl enable {{ _unit }}"
+      register: _enable_res
+      changed_when: "'Created symlink' in _enable_res.stderr or 'Created symlink' in _enable_res.stdout"
+      failed_when: _enable_res.rc != 0
+      when: _action == 'enable'
+
+    - name: "Arrancar la unit {{ _unit }} (equivale al --now)"
+      ansible.builtin.command: "sudo -n systemctl start {{ _unit }}"
+      register: _start_res
+      changed_when: false
+      failed_when: _start_res.rc != 0
+      when: _action == 'enable'
+
+    # is-active/is-enabled son consultas de solo lectura: funcionan SIN sudo
+    # (no como enable/start/stop, que sí requieren la regla NOPASSWD).
+    - name: "Comprobar estado de la unit tras enable"
+      ansible.builtin.command: "systemctl is-active {{ _unit }}"
+      register: _active_res
+      changed_when: false
+      failed_when: false
+      when: _action == 'enable'
+
+    # systemd da 'active' en cuanto arranca el proceso, pero dmts64 tarda unos
+    # segundos en abrir el puerto TCP del agente. Si justo después se registra el
+    # datastore en el AS (action=create), el 'add access datastore' conecta al
+    # motor y, si el puerto aún no escucha, da timeout rc=-2001. Por eso, si se
+    # pasó 'port', esperamos a que el puerto esté en LISTEN antes de dar el enable
+    # por bueno. Sin 'port' (p.ej. enable idempotente del R01) se omite la espera.
+    - name: "Esperar a que el puerto {{ _port }} del agente esté escuchando"
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ _port | int }}"
+        state: started
+        timeout: 120
+        delay: 2
+      register: _wait_port
+      failed_when: false
+      when:
+        - _action == 'enable'
+        - _port | default('') | length > 0
+
+    - name: "RESULTADO enable"
+      ansible.builtin.debug:
+        msg: >-
+          [enable] datastore {{ _name }}: unit {{ _unit }}
+          habilitada (persistente a reboot) y arrancada.
+          Estado actual: {{ _active_res.stdout | default('desconocido') | trim }}.
+          {{ ('Puerto ' ~ _port ~ ' en LISTEN.'
+              if (_wait_port is defined and not (_wait_port.failed | default(false)))
+              else ('OJO: puerto ' ~ _port ~ ' NO llegó a escuchar en 120s (revisa el arranque de dmts64).'
+                    if _port | default('') | length > 0 else '')) }}
+      when: _action == 'enable'
+
+    - name: "Fallar si la unit no quedó activa tras enable"
+      ansible.builtin.assert:
+        that:
+          - (_active_res.stdout | default('') | trim) == 'active'
+        fail_msg: >-
+          [enable] La unit {{ _unit }} no está 'active' tras enable --now
+          (estado: {{ _active_res.stdout | default('?') | trim }}). Revisa el
+          arranque de la instancia en el motor (logs de cdc_instance_mgmt.sh).
+        success_msg: "[enable] unit {{ _unit }} active."
+      when: _action == 'enable'
+
+    # ── create-instance: límite de instancias por motor (por memoria física) ──
+    # Cada instancia arranca con -Xmx8192M (8 GB). Los motores tienen 16 GB, así
+    # que caben pocas: el límite por entorno (iidr_kafka_max_instances) lo impone.
+    # Se cuentan las instancias REALES = carpetas de instance/ cuyo nombre NO
+    # contiene 'backup' (excluye los *_conf_backup_* y futuros backups de md.dbn
+    # vía dmbackupmd). Si la instancia pedida YA existe, NO se aplica el límite
+    # (es idempotencia: el wrapper dará SKIPPED), solo se bloquea crear una NUEVA
+    # que supere el tope.
+    - name: "create-instance — contar instancias existentes en el motor"
+      ansible.builtin.shell: >-
+        set -o pipefail;
+        ls -1d {{ _instance_root }}/*/ 2>/dev/null
+        | grep -v -i backup
+        | wc -l
+      register: _inst_count
+      changed_when: false
+      failed_when: false
+      when: _action == 'create-instance'
+
+    - name: "create-instance — comprobar si la instancia pedida ya existe"
+      ansible.builtin.stat:
+        path: "{{ _conf_dir }}"
+      register: _this_inst_stat
+      when: _action == 'create-instance'
+
+    - name: "create-instance — abortar si se supera el límite de instancias del motor"
+      ansible.builtin.assert:
+        that:
+          - (_this_inst_stat.stat.exists | default(false)) or
+            ((_inst_count.stdout | default('0') | trim | int) < (_max_instances | int))
+        fail_msg: >-
+          [create-instance] el motor ya tiene
+          {{ _inst_count.stdout | default('?') | trim }} datastore(s) y el límite
+          para {{ iidr_env | default('este entorno') }} es {{ _max_instances }}
+          (límite por memoria física: 16 GB / 8 GB por instancia). No se crea
+          '{{ _name }}'. Si de verdad hace falta otro, revisa la RAM del motor y
+          ajusta iidr_kafka_max_instances_by_env.
+        success_msg: >-
+          [create-instance] límite OK
+          ({{ _inst_count.stdout | default('?') | trim }}/{{ _max_instances }} instancias).
+      when: _action == 'create-instance'
+
+    # ── create-instance: crear la instancia del motor Kafka ─────────────────
+    # Invoca el wrapper de iidr-install (iidr-setup-instance.py) por NFS: render
+    # del XML + dmimportconfiguration. Idempotente (el wrapper devuelve SKIPPED si
+    # la instancia ya existe). DS_PASSWORD_ENC llega por env y el wrapper lo
+    # propaga al reejecutarse como cdcuser (no aparece en 'ps'). NO registra el
+    # datastore en el AS: para eso, action=create aparte.
+    - name: "Crear la instancia del motor Kafka {{ _name }} (dmimportconfiguration)"
+      ansible.builtin.command: >-
+        {{ iidr_setup_instance_py }} kafka-agent
+        --agent-home {{ iidr_kafka_agent_home }}
+        -p INSTANCE_NAME={{ _name }}
+        -p TCP_PORT={{ _port }}
+      environment:
+        DS_PASSWORD_ENC: "{{ _ds_password_enc }}"
+      register: _ci_res
+      changed_when: false
+      failed_when: false
+      no_log: true
+      when: _action == 'create-instance'
+
+    # El wrapper imprime JSON {status,operation,data,message} a stdout.
+    - name: "create-instance — parsear la salida del wrapper"
+      ansible.builtin.set_fact:
+        _ci_out: "{{ _ci_res.stdout | from_json }}"
+      when:
+        - _action == 'create-instance'
+        - _ci_res.stdout | default('') | trim | first == '{'
+
+    - name: "create-instance — fallar si el wrapper no devolvió OK/SKIPPED"
+      ansible.builtin.assert:
+        that:
+          - _ci_out is defined
+          - _ci_out.status in ['OK', 'SKIPPED']
+        fail_msg: >-
+          [create-instance] la creación de la instancia '{{ _name }}' falló
+          (rc={{ _ci_res.rc | default('?') }}):
+          {{ _ci_out.message | default(_ci_res.stderr | default('sin salida JSON; revisa el log del wrapper')) }}
+        success_msg: "[create-instance] wrapper {{ _ci_out.status }} para {{ _name }}."
+      when: _action == 'create-instance'
+
+    # dmimportconfiguration deja un dmts64 corriendo tras el import; hay que
+    # pararlo antes de que systemd (action=enable) arranque la unit, o colisionan.
+    # Solo si la instancia se CREÓ ahora (status OK); si fue SKIPPED (ya existía)
+    # no hay proceso residual que parar. dmshutdown es idempotente (si no hay
+    # nada corriendo, no falla el flujo: failed_when relajado).
+    - name: "create-instance — parar el dmts64 residual (dmshutdown)"
+      ansible.builtin.command: "{{ iidr_kafka_dmshutdown }} -I {{ _name }}"
+      register: _dmsd_res
+      changed_when: true
+      failed_when: false
+      when:
+        - _action == 'create-instance'
+        - (_ci_out | default({})).status | default('') == 'OK'
+
+    - name: "RESULTADO create-instance"
+      ansible.builtin.debug:
+        msg: >-
+          [create-instance] instancia {{ _name }} (puerto {{ _port }}):
+          {{ (_ci_out | default({})).status | default('?') }} —
+          {{ (_ci_out | default({})).message | default('') }}
+          {{ '(dmts64 residual parado)' if (_ci_out | default({})).status | default('') == 'OK' else '' }}
+          Siguiente paso del alta: action=create (registrar en el AS).
+      when: _action == 'create-instance'

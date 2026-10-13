@@ -1,0 +1,129 @@
+---
+## Conmuta los servicios IIDR de una AZ a otra.
+##
+## Acciones:
+##   1. Para y deshabilita los servicios en todos los nodos de la AZ que deja de ser activa
+##   2. Actualiza /etc/hosts en TODOS los nodos del entorno con las IPs de la nueva AZ activa
+##   3. Habilita y arranca los servicios en todos los nodos de la AZ que pasa a ser activa
+##
+## Requiere que group_vars/<env>/vars_iidr_ha.yml esté relleno con las IPs reales de cada AZ.
+##
+## ADVERTENCIA: antes de ejecutar, asegurarse de que los servidores de la AZ destino
+## están encendidos y accesibles por SSH. Los de la AZ origen deben estar accesibles
+## para parar los servicios (si no lo están, el paso 1 fallará — ajustar failed_when).
+##
+## Required extra-vars (AAP extra vars / prompt on launch):
+##   iidr_env           - 'dev' | 'pre' | 'prod'
+##   iidr_ha_active_az  - 'a' o 'b' — la AZ que debe quedar activa tras el switch
+##
+## Inventario requerido en AAP (un único inventario compartido entre entornos):
+##   Grupos por entorno con sufijo iidr_env: [iidr_az_a_<env>] e [iidr_az_b_<env>].
+##   Ej. para PRE: [iidr_az_a_pre] (AS+DB2+Kafka de AZ-A) e [iidr_az_b_pre] (los de AZ-B).
+##   El sufijo es el valor de iidr_env tal cual: _dev / _pre / _prod. Este playbook
+##   no usa target_host.
+
+- name: Parar servicios en AZ que deja de ser activa
+  hosts: "{{ ('iidr_az_b_' if iidr_ha_active_az == 'a' else 'iidr_az_a_') ~ iidr_env }}"
+  become: false
+  gather_facts: false
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/{{ iidr_env }}/vars_iidr_ha.yml"
+  tasks:
+
+    - name: Parar cdc_access_server (si existe)
+      ansible.builtin.systemd:
+        name: cdc_access_server
+        state: stopped
+        enabled: false
+      become: true
+      failed_when: false
+
+    - name: Parar cdc_db2_agent (si existe)
+      ansible.builtin.systemd:
+        name: cdc_db2_agent
+        state: stopped
+        enabled: false
+      become: true
+      failed_when: false
+
+    - name: Parar cdc_kafka_agent (si existe)
+      ansible.builtin.systemd:
+        name: cdc_kafka_agent
+        state: stopped
+        enabled: false
+      become: true
+      failed_when: false
+
+- name: Actualizar /etc/hosts en todos los nodos con IPs de la nueva AZ activa
+  hosts: "iidr_az_a_{{ iidr_env }}:iidr_az_b_{{ iidr_env }}"
+  become: false
+  gather_facts: false
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/{{ iidr_env }}/vars_iidr_ha.yml"
+  tasks:
+
+    - name: Actualizar entradas de nombres canónicos en /etc/hosts
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        line: "{{ (item.ip_az_a if iidr_ha_active_az == 'a' else item.ip_az_b) }}\t{{ item.canonical }}"
+        regexp: "\\s{{ item.canonical }}(\\s|$)"
+        state: present
+      loop: "{{ iidr_ha_canonical_hosts }}"
+      become: true
+
+- name: Arrancar servicios en la nueva AZ activa
+  hosts: "{{ ('iidr_az_a_' if iidr_ha_active_az == 'a' else 'iidr_az_b_') ~ iidr_env }}"
+  become: false
+  gather_facts: false
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/{{ iidr_env }}/vars_iidr_ha.yml"
+  tasks:
+
+    - name: Arrancar cdc_access_server (si el unit existe)
+      ansible.builtin.stat:
+        path: /etc/systemd/system/cdc_access_server.service
+      register: as_unit
+      become: true
+
+    - name: Habilitar y arrancar cdc_access_server
+      ansible.builtin.systemd:
+        name: cdc_access_server
+        state: started
+        enabled: true
+      become: true
+      when: as_unit.stat.exists
+
+    - name: Arrancar cdc_db2_agent (si el unit existe)
+      ansible.builtin.stat:
+        path: /etc/systemd/system/cdc_db2_agent.service
+      register: db2_unit
+      become: true
+
+    - name: Habilitar y arrancar cdc_db2_agent
+      ansible.builtin.systemd:
+        name: cdc_db2_agent
+        state: started
+        enabled: true
+      become: true
+      when: db2_unit.stat.exists
+
+    - name: Arrancar cdc_kafka_agent (si el unit existe)
+      ansible.builtin.stat:
+        path: /etc/systemd/system/cdc_kafka_agent.service
+      register: kafka_unit
+      become: true
+
+    - name: Habilitar y arrancar cdc_kafka_agent
+      ansible.builtin.systemd:
+        name: cdc_kafka_agent
+        state: started
+        enabled: true
+      become: true
+      when: kafka_unit.stat.exists
+
+    - name: Resumen
+      ansible.builtin.debug:
+        msg: |
+          === IIDR HA Switch — AZ {{ iidr_ha_active_az | upper }} ahora activa ===
+            /etc/hosts actualizado en todos los nodos
+            Servicios arrancados en: {{ inventory_hostname }}

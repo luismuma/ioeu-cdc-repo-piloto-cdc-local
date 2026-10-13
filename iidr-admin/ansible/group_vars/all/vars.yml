@@ -1,0 +1,145 @@
+---
+## Variables comunes a todos los playbooks de iidr-admin (AAP).
+## Cargar con: vars_files: [ "{{ playbook_dir }}/../group_vars/all/vars.yml" ]
+
+# ── Vía táctica de ejecución ──────────────────────────────────────────
+# Host donde corre iidr.sh, por entorno. Hoy = el AS de cada entorno (que
+# tiene Java + JARs + iidr.sh + truststore). SIEMPRE FQDN (el EE no
+# resuelve nombres cortos). Cuando el EE tenga Java+JARs, esto pasará a
+# ser 'localhost' y se quitará el patrón de 2 plays.
+# PRE/PRO: nombre CANÓNICO de servicio (.es.mapfre.net) — sobrevive a un
+# switch de AZ (apunta siempre al nodo activo del servicio). DEV no tiene
+# canónico (1 nodo por servicio) → hostname físico.
+iidr_exec_host_by_env:
+  dev: lesawsew131211.es.mapfre.net
+  pre: iidr-gr-db2-acs-a01-aws-pre.es.mapfre.net
+iidr_exec_host: "{{ iidr_exec_host_by_env[iidr_env] }}"
+
+# Ruta de iidr.sh en el NFS (igual en todos los entornos).
+iidr_sh_path: /u01/repo/automation/iidr-ctl/bin/iidr.sh
+
+# Usuario destino tras el SSH (Machine Credential entra como ec2-user con
+# sudo sin pwd; become a cdcuser para operar día a día con cdcauto).
+iidr_run_user: cdcuser
+
+# ── Claves del secreto AWS SM ─────────────────────────────────────────
+# El objeto JSON del secreto CDC-VAULT-<ENV> lleva estas claves.
+# Nomenclatura acordada con el equipo de GoldenGate (secreto compartido en
+# AWS SM, 2026-07-21): prefijo IIDR_ en MAYÚSCULAS (antes vault_iidr_ en
+# minúsculas).
+iidr_key_tls_password: IIDR_AS_KEYSTORE_PASSWORD
+iidr_key_cdcadmin_password: IIDR_CDCADMIN_PASSWORD
+# Credenciales de motor por tipo de datastore (para datastore grant).
+# Van como DB_USER_ENC/DB_PASSWORD_ENC (cifradas IBM Encryptor) al iidr.sh
+# datastore grant, que las descifra y las pasa a dbUser/dbPassword de CHCCLP.
+# OJO por tipo (confirmado 2026-10-07):
+#   - DB2:   usuario/contraseña de la BASE DE DATOS DB2.
+#   - Kafka: el 'tsuser' del motor (no una BD) — IIDR_KAFKA_DS_USER/_ENC.
+iidr_key_db2_user_enc: IIDR_DB2_DS_USER_ENC
+iidr_key_db2_password_enc: IIDR_DB2_DS_PASSWORD_ENC
+iidr_key_kafka_user_enc: IIDR_KAFKA_DS_USER_ENC
+iidr_key_kafka_password_enc: IIDR_KAFKA_DS_PASSWORD_ENC
+
+# ── Grupos LDAP del AS (para datastore grant) ─────────────────────────
+# En el modelo LDAP puro el 'access connection' sobre un datastore se concede
+# a los GRUPOS AD, NO a los usuarios individuales APP-cdc* (el AS no resuelve
+# un usuario suelto contra LDAP: 'add access connection username APP-cdcmon'
+# → ERR3010 "user could not be found"; los grupos sí existen en el AS). Nombres
+# replicados de iidr-install (vars_iidr.yml): gsscc-cdc-iidr-<env>-<rol>.
+# Solo sysadministrator (APP-cdcadmin/APP-cdcauto) y monitor (APP-cdcmon)
+# necesitan conexión al datastore; administrator y operator NO.
+iidr_ldap_group_sysadmin_by_env:
+  dev: gsscc-cdc-iidr-dev-sysadministrator
+  pre: gsscc-cdc-iidr-pre-sysadministrator
+  pro: gsscc-cdc-iidr-pro-sysadministrator
+iidr_ldap_group_monitor_by_env:
+  dev: gsscc-cdc-iidr-dev-monitor
+  pre: gsscc-cdc-iidr-pre-monitor
+  pro: gsscc-cdc-iidr-pro-monitor
+# Grupos a los que el grant concede access connection sobre el datastore.
+iidr_datastore_grant_groups:
+  - "{{ iidr_ldap_group_sysadmin_by_env[iidr_env] }}"
+  - "{{ iidr_ldap_group_monitor_by_env[iidr_env] }}"
+
+# ── Datastores conocidos por entorno (referencia / defaults de survey) ─
+iidr_datastore_db2_by_env:
+  dev: IIDR_GR_DB2_E01_AWS_DEV
+  pre: IIDR_GR_DB2_DB2_E01_AWS_PRE
+iidr_datastore_kafka_by_env:
+  dev: IIDR_GR_KFK_R01_AWS_DEV
+  pre: IIDR_GR_DB2_KFK_R01_AWS_PRE
+
+# ── KCOP / suscripción Kafka (action=setup-kafka) ─────────────────────
+# Host del motor Kafka por entorno: donde se deposita el <SUB>.properties
+# (dir conf del engine). SIEMPRE FQDN.
+# PRE/PRO: nombre CANÓNICO del servicio motor Kafka (el "r01" es del
+# SERVIDOR, fijo; NO confundir con el nombre del datastore, que puede ser
+# R02/R03 dentro del mismo servidor). DEV: hostname físico (sin canónico).
+iidr_kafka_engine_host_by_env:
+  dev: lesawsew131210.es.mapfre.net
+  pre: iidr-gr-db2-kfk-r01-aws-pre.es.mapfre.net
+iidr_kafka_engine_host: "{{ iidr_kafka_engine_host_by_env[iidr_env] }}"
+
+# Raíz donde el motor Kafka guarda las instancias (user.folder), por entorno.
+# OJO: difiere entre entornos (verificado por SSH 2026-10-06):
+#   - DEV:     /u01/IIDR/ReplicationEngineforKafka/instance/      (sin _Data)
+#   - PRE/PRO: /u01/IIDR/ReplicationEngineforKafka_Data/instance/ (con _Data)
+iidr_kafka_instance_root_by_env:
+  dev: /u01/IIDR/ReplicationEngineforKafka/instance
+  pre: /u01/IIDR/ReplicationEngineforKafka_Data/instance
+  pro: /u01/IIDR/ReplicationEngineforKafka_Data/instance
+iidr_kafka_instance_root: "{{ iidr_kafka_instance_root_by_env[iidr_env] }}"
+
+# Directorio conf de la instancia <DATASTORE> donde van el <SUB>.properties del
+# KCOP y los kafkaproducer/consumer.properties del motor.
+iidr_kafka_engine_conf_dir: "{{ iidr_kafka_instance_root }}/{{ iidr_datastore_kafka_by_env[iidr_env] }}/conf"
+
+# ── Creación de instancia del motor Kafka (action=create-instance) ─────
+# agent_home del motor Kafka (raíz del producto instalado, sin _Data). Igual en
+# todos los entornos (symlink ReplicationEngineforKafka → ..._5813).
+iidr_kafka_agent_home: /u01/IIDR/ReplicationEngineforKafka
+# Wrapper de iidr-install (repo hermano) desplegado en el NFS compartido: crea la
+# instancia vía dmimportconfiguration (render XML + import). Idempotente (SKIPPED
+# si la instancia existe). iidr-admin lo INVOCA (no reimplementa su lógica); el
+# 'cómo' es propiedad de iidr-install. Devuelve JSON {status,operation,...}.
+iidr_setup_instance_py: /u01/repo/automation/iidr-install/bin/iidr-setup-instance.py
+# Binario para parar el dmts64 que dmimportconfiguration deja corriendo tras el
+# import (paso documentado por iidr-install): hay que pararlo antes de que systemd
+# arranque la unit, o colisionan dos procesos sobre la misma instancia.
+iidr_kafka_dmshutdown: "{{ iidr_kafka_agent_home }}/bin/dmshutdown"
+
+# Máximo de datastores (instancias Kafka) por motor, por entorno. Límite por
+# MEMORIA FÍSICA: los motores tienen 16 GB (DEV/PRE/PRO) y cada instancia arranca
+# con -Xmx8192M (8 GB heap). A 8 GB cada una, 2 saturan los 16 GB. PRE=3 de
+# momento (margen para pruebas; el -Xmx no implica consumo real con el tráfico
+# actual, casi nulo). create-instance ABORTA si ya hay >= este nº de instancias
+# reales en el motor (cuenta carpetas de instance/ sin 'backup' en el nombre).
+iidr_kafka_max_instances_by_env:
+  dev: 2
+  pre: 3
+  pro: 2
+iidr_kafka_max_instances: "{{ iidr_kafka_max_instances_by_env[iidr_env] }}"
+
+# Clase Java del KCOP (user exit) — fija.
+iidr_kcop_classname: com.datamirror.ts.target.publication.userexit.sample.kafka.KcopSingleRowAvroAuditIntegrated
+
+# ── Datos del Schema Registry por entorno (no secretos) ───────────────
+# Varían por entorno (url y logical cluster distintos en DEV y PRE). Los
+# secretos (client_id/secret/pool_id) NO van aquí sino en AWS SM.
+iidr_sr_url_by_env:
+  dev: "https://psrc-z6m8p6p.eu-west-1.aws.confluent.cloud/"
+  pre: "https://lsrc-5kddxn.domqwxv239g.eu-west-1.aws.confluent.cloud/"
+iidr_sr_logical_cluster_by_env:
+  dev: "lsrc-y7q3no"
+  pre: "lsrc-5kddxn"
+# El issuer OAuth y el scope son iguales en DEV y PRE (mismo tenant/cliente).
+iidr_sr_issuer_url: "https://login.microsoftonline.com/93ad25dd-8cdc-4066-9727-31a8a3024f80/oauth2/v2.0/token"
+iidr_sr_scope: "api://b23a6a01-cd61-4619-9f1b-39de3e9b2a27/.default"
+
+iidr_sr_url: "{{ iidr_sr_url_by_env[iidr_env] }}"
+iidr_sr_logical_cluster: "{{ iidr_sr_logical_cluster_by_env[iidr_env] }}"
+
+# Claves del secreto AWS SM con las credenciales OAuth del Schema Registry.
+iidr_key_sr_client_id: KAFKA_CLIENT_ID
+iidr_key_sr_client_secret: KAFKA_CLIENT_SECRET
+iidr_key_sr_pool_id: KAFKA_POOL_ID

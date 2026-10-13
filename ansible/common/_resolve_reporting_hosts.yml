@@ -1,0 +1,50 @@
+---
+# Shared helper — derives OGG reporting hosts from inventory.yaml and registers
+# them in the Ansible inventory under the _cdc_log_targets group.
+#
+# Reads from play scope (must be set before calling):
+#   _cdc_parsed_content  : parsed input JSON (set_fact by the calling playbook)
+#   cdc_dir              : absolute path to the cdc-controller directory
+#
+# Optional var (pass via include_tasks vars:):
+#   _rh_change_ref       : subdirectory name used in the remote log path
+#                          (default: _cdc_parsed_content.change_number | default('trandata'))
+#
+# Sets facts:
+#   _cdc_reporting_host_list  : list of hostnames derived from inventory.yaml
+#   cdc_remote_log_dir        : remote log directory path on the reporting server
+
+- name: "Derive reporting hosts from inventory.yaml"
+  ansible.builtin.set_fact:
+    cdc_remote_log_dir: >-
+      /u01/repo/replications/{{ _cdc_parsed_content.bbdd_engine | upper }}/{{ _cdc_parsed_content.bbdd_name | upper }}/{{ (_rh_change_ref | default(_cdc_parsed_content.change_number | default('trandata'))) | upper }}/logs
+    _cdc_reporting_host_list: >-
+      {%- set inv      = lookup('file', cdc_dir + '/config/inventory_deployments/inventory.yaml') | from_yaml -%}
+      {%- set want_env = _cdc_parsed_content.env | upper -%}
+      {%- set want_eng = _cdc_parsed_content.bbdd_engine | upper -%}
+      {%- set rep_type = _cdc_parsed_content.replication_type | default('FULL') | upper -%}
+      {%- if   rep_type == 'ONLINE'       -%}{%- set want_lt = ['online'] -%}
+      {%- elif rep_type == 'INITIAL_LOAD' -%}{%- set want_lt = ['initial_load'] -%}
+      {%- elif rep_type == 'FULL'         -%}{%- set want_lt = ['online', 'initial_load'] -%}
+      {%- else                            -%}{%- set want_lt = [] -%}{%- endif -%}
+      {%- set hosts = [] -%}
+      {%- for dep_name, dep in inv.items() -%}
+        {%- if dep_name != 'defaults' and dep is mapping -%}
+          {%- if dep.get('env') == want_env and dep.get('db_engine') == want_eng and dep.get('load_type') in want_lt -%}
+            {%- set host = dep.get('admin_url', '') | regex_replace('^https?://', '') -%}
+            {%- if host and host not in hosts -%}{% set _ = hosts.append(host) %}{%- endif -%}
+          {%- endif -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ hosts }}
+
+- name: "Register reporting hosts in inventory"
+  ansible.builtin.add_host:
+    name:                "{{ item }}"
+    groups:              _cdc_log_targets
+    ansible_user:        "ec2-user"
+    ansible_become:      true
+    ansible_become_user: "oracle"
+    ansible_become_exe:  "/usr/bin/sudo"
+  loop: "{{ _cdc_reporting_host_list }}"
+  when: _cdc_reporting_host_list | length > 0

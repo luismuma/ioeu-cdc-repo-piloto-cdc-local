@@ -1,0 +1,96 @@
+---
+# Single poll iteration — called by _poll_async_progress.yml inner loop.
+# Do not include this file directly.
+#
+# The entire block is skipped when _async_done is already true (set by a
+# previous iteration in this batch), making remaining batch items instant
+# no-ops. Note: Ansible propagates the block's `when` to each task inside,
+# so `Mark as finished` must run AFTER the log sync — once _async_done
+# becomes true any subsequent task in the block is also skipped.
+
+- name: "Poll work"
+  when: not (_async_done | default(false) | bool)
+  block:
+
+    - name: "Increment poll counter"
+      ansible.builtin.set_fact:
+        _poll_n: "{{ _poll_n | int + 1 }}"
+
+    - block:
+
+        # ── Log tail ──────────────────────────────────────────────────────────
+        - name: "New log lines (poll {{ _poll_n }})"
+          ansible.builtin.command: >-
+            tail -n +{{ (_async_lines_seen | int) + 1 }} {{ _poll_log_path }}
+          register: _async_log_tail
+          failed_when: false
+          changed_when: false
+          no_log: true
+
+        - name: "Display log (poll {{ _poll_n }})"
+          ansible.builtin.debug:
+            msg: "{{ _async_log_tail.stdout_lines }}"
+          when: _async_log_tail.stdout_lines | length > 0
+
+        - name: "Update seen-lines offset"
+          ansible.builtin.set_fact:
+            _async_lines_seen: "{{ (_async_lines_seen | int) + (_async_log_tail.stdout_lines | length) }}"
+
+        # ── Job status ─────────────────────────────────────────────────────────
+        - name: "Async job status (poll {{ _poll_n }})"
+          ansible.builtin.async_status:
+            jid: "{{ _poll_jid }}"
+          register: _async_status
+          failed_when: false
+
+        # ── Log sync BEFORE marking done ────────────────────────────────────────
+        # Must run before Mark as finished: Ansible propagates the block's
+        # `when: not _async_done` to every task, so once _async_done becomes
+        # true all subsequent tasks in this block are skipped. Syncing here
+        # ensures the last poll's lines reach the reporting host.
+        - name: "Sync new log lines to reporting server (poll {{ _poll_n }})"
+          ansible.builtin.shell: |
+            tail -n +{{ (_poll_sync_lines_sent | int) + 1 }} "{{ _poll_log_path }}" \
+              | head -n {{ (_async_lines_seen | int) - (_poll_sync_lines_sent | int) }} \
+              | ssh -o StrictHostKeyChecking=no -o BatchMode=yes -o LogLevel=ERROR \
+                    {{ _poll_sync_user }}@{{ _poll_sync_host }} \
+                    '{% if _poll_sync_become | bool %}{{ _poll_sync_become_exe }} -u {{ _poll_sync_become_user }} {% endif %}sh -c "mkdir -p {{ _poll_sync_dir }} && tee -a {{ _poll_sync_dest }} > /dev/null"'
+          when:
+            - _poll_sync_host | length > 0
+            - (_async_lines_seen | int) > (_poll_sync_lines_sent | int)
+          failed_when: false
+          changed_when: false
+
+        - name: "Update sync offset"
+          ansible.builtin.set_fact:
+            _poll_sync_lines_sent: "{{ _async_lines_seen }}"
+          when: _poll_sync_host | length > 0
+
+        # ── Mark done — after sync so the block's when doesn't skip the sync ──
+        - name: "Mark as finished"
+          ansible.builtin.set_fact:
+            _async_done: "{{ _async_status.finished | default(false) | bool }}"
+
+        # ── Give-up check ──────────────────────────────────────────────────────
+        - name: "Mark max polls reached (giving up)"
+          ansible.builtin.set_fact:
+            _async_done: true
+          when:
+            - not (_async_done | bool)
+            - _poll_max | int > 0
+            - _poll_n | int >= (_poll_max | int - 1)
+
+        # ── Pause before next poll ─────────────────────────────────────────────
+        - name: "Pause {{ _poll_interval }}s (still running)"
+          ansible.builtin.pause:
+            seconds: "{{ _poll_interval }}"
+          when: not (_async_done | bool)
+
+      rescue:
+        - name: "Poll {{ _poll_n }} iteration error — continuing"
+          ansible.builtin.debug:
+            msg: >-
+              An unexpected error occurred during poll {{ _poll_n }}
+              (task: {{ ansible_failed_task.name | default('unknown') }},
+              error: {{ ansible_failed_result.msg | default('see above') }}).
+              Polling will continue on the next iteration.

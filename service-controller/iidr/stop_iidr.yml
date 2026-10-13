@@ -1,0 +1,235 @@
+---
+# stop_iidr.yml — Para las suscripciones y los servicios de un entorno IIDR.
+#
+# Orden inverso al arranque: suscripciones → motores → Access Server. Las
+# suscripciones se paran limpiamente (para que los checkpoints queden escritos)
+# ANTES de bajar los servicios systemctl.
+#
+# Diseño (patrón service-controller, igual que ogg/):
+#   Play 0 (localhost) — valida vars, resuelve el secreto AWS SM (truststore),
+#                        registra los 3 nodos (AS, motor DB2, motor Kafka).
+#   Play 1 (AS por SSH)          — para las suscripciones activas con iidr.sh.
+#   Play 2 (motores por SSH)     — systemctl stop de cdc_db2_agent y cdc_kafka_agent.
+#   Play 3 (AS por SSH)          — systemctl stop del Access Server, espera cierre de puerto.
+#
+# Variables de survey AAP:
+#   iidr_env   — 'dev' | 'pre' | 'pro'
+#   iidr_as_host      — hostname/FQDN del Access Server
+#   iidr_db2_host     — hostname/FQDN del motor DB2 (origen)
+#   iidr_kafka_host   — hostname/FQDN del motor Kafka (destino)
+#   iidr_source_datastore — (opcional) datastore origen; por defecto el del entorno.
+#
+# Credenciales AAP en el job template:
+#   Machine Credential — ec2-user con sudo NOPASSWD (SSH a los 3 nodos).
+#   Custom Credential AWS SM — inyecta aws_secret_json_<env> (pwd del truststore).
+#
+# Ejemplo local (DEV):
+#   ansible-playbook service-controller/iidr/stop_iidr.yml \
+#     -e iidr_env=dev \
+#     -e iidr_as_host=lesawsew131211.es.mapfre.net \
+#     -e iidr_db2_host=lesawsew131209.es.mapfre.net \
+#     -e iidr_kafka_host=lesawsew131210.es.mapfre.net \
+#     -e aws_secret_json_dev="$(cat secret_dev.json)"
+
+
+# ── Play 0: validar, resolver secreto y registrar los nodos ──────────────────
+
+- name: Registrar nodos IIDR y resolver secreto
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    - vars/defaults.yml
+
+  pre_tasks:
+    - name: Validar variables requeridas
+      ansible.builtin.assert:
+        that:
+          - iidr_env in ['dev', 'pre', 'pro']
+          - iidr_as_host is defined and iidr_as_host | length > 0
+          - iidr_db2_host is defined and iidr_db2_host | length > 0
+          - iidr_kafka_host is defined and iidr_kafka_host | length > 0
+        fail_msg: >-
+          Requeridas: iidr_env (dev|pre|pro), iidr_as_host, iidr_db2_host,
+          iidr_kafka_host (por survey AAP o --extra-vars).
+
+  tasks:
+    - name: Resolver secreto del entorno desde AWS SM
+      ansible.builtin.set_fact:
+        _vault: >-
+          {{ (aws_secret_json_dev  if iidr_env == 'dev'  else
+              aws_secret_json_pre  if iidr_env == 'pre'  else
+              aws_secret_json_pro) | from_json }}
+      no_log: true
+
+    - name: Verificar clave del truststore en el secreto
+      ansible.builtin.assert:
+        that:
+          - iidr_key_tls_password in _vault
+          - _vault[iidr_key_tls_password] | length > 0
+        fail_msg: "El secreto no contiene '{{ iidr_key_tls_password }}'."
+
+    - name: Registrar el Access Server
+      ansible.builtin.add_host:
+        name: "{{ iidr_as_host }}"
+        groups: iidr_as
+        _tls_pwd: "{{ _vault[iidr_key_tls_password] }}"
+        _source_datastore: "{{ iidr_source_datastore | default(iidr_datastore_db2_by_env[iidr_env]) }}"
+      no_log: true
+
+    - name: Registrar los motores (DB2 y Kafka)
+      ansible.builtin.add_host:
+        name: "{{ item }}"
+        groups: iidr_engines
+      loop:
+        - "{{ iidr_db2_host }}"
+        - "{{ iidr_kafka_host }}"
+
+
+# ── Play 1: parar las suscripciones vía iidr.sh (en el AS, SSH) ──────────────
+# Se paran ANTES de bajar los servicios, para que los checkpoints se escriban.
+# Si el Access Server ya está caído, el list falla → se avisa y se sigue con
+# la parada de servicios (idempotente).
+
+- name: Parar suscripciones IIDR
+  hosts: iidr_as
+  gather_facts: false
+
+  vars_files:
+    - vars/defaults.yml
+
+  tasks:
+    - name: Listar suscripciones del datastore origen {{ _source_datastore }}
+      ansible.builtin.command:
+        argv:
+          - "{{ iidr_sh_path }}"
+          - subscription
+          - list
+          - --source
+          - "{{ _source_datastore }}"
+      environment:
+        TLS_TRUST_STORE_PASSWORD: "{{ _tls_pwd }}"
+      become: true
+      become_user: "{{ iidr_run_user }}"
+      register: _sub_list
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Avisar si el Access Server no responde (puede estar ya parado)
+      ansible.builtin.debug:
+        msg: >-
+          No se pudo listar las suscripciones (rc={{ _sub_list.rc }}). El Access
+          Server puede estar ya parado. Se continúa con la parada de servicios.
+      when: _sub_list.rc != 0
+
+    - name: Parsear la lista de suscripciones
+      ansible.builtin.set_fact:
+        _subs: >-
+          {{ (_sub_list.stdout | from_json).data
+             if (_sub_list.rc == 0 and (_sub_list.stdout | default('') | trim) is match('^\\{'))
+             else [] }}
+
+    # Paramos las que estén activas (mirroring/refresh en curso). "Activa" =
+    # igual que en el código (SubscriptionHelper.isRunning): el estado empieza
+    # por 'Mirror' o 'Refresh'; añadimos 'Starting'. Método normal = parada
+    # limpia con checkpoint. iidr.sh 'stop' es idempotente (las ya paradas → SKIPPED).
+    - name: Parar las suscripciones activas
+      ansible.builtin.command:
+        argv:
+          - "{{ iidr_sh_path }}"
+          - subscription
+          - stop
+          - --source
+          - "{{ _source_datastore }}"
+          - --name
+          - "{{ item.name }}"
+      environment:
+        TLS_TRUST_STORE_PASSWORD: "{{ _tls_pwd }}"
+      become: true
+      become_user: "{{ iidr_run_user }}"
+      loop: >-
+        {{ _subs | selectattr('state', 'match', '^(Mirror|Refresh|Starting)') | list }}
+      loop_control:
+        label: "{{ item.name }}"
+      register: _sub_stop
+      changed_when: "'\"status\": \"OK\"' in (_sub_stop.stdout | default(''))"
+      failed_when: false
+      no_log: true
+
+    - name: Resumen de la parada de suscripciones
+      ansible.builtin.debug:
+        msg:
+          datastore_origen: "{{ _source_datastore }}"
+          paradas_intentadas: >-
+            {{ _subs | selectattr('state', 'match', '^(Mirror|Refresh|Starting)')
+               | map(attribute='name') | list }}
+
+
+# ── Play 2: parar los motores de replicación (SSH) ───────────────────────────
+
+- name: Parar motores IIDR (DB2 y Kafka)
+  hosts: iidr_engines
+  gather_facts: true
+
+  vars_files:
+    - vars/defaults.yml
+
+  tasks:
+    - name: Detectar qué units cdc_* existen en este nodo
+      ansible.builtin.shell:
+        cmd: "systemctl list-unit-files '{{ item }}' --no-legend | awk '{print $1}'"
+      loop:
+        - "{{ iidr_db2_service }}"
+        - "{{ iidr_kafka_service }}"
+      register: _unit_check
+      changed_when: false
+      failed_when: false
+      become: true
+
+    - name: Parar y deshabilitar los units cdc_* presentes
+      ansible.builtin.systemd:
+        name: "{{ item.item }}"
+        state: stopped
+        enabled: false
+      become: true
+      loop: "{{ _unit_check.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when: item.stdout | trim | length > 0
+      failed_when: false
+
+
+# ── Play 3: parar el Access Server (SSH) ─────────────────────────────────────
+
+- name: Parar Access Server
+  hosts: iidr_as
+  gather_facts: false
+
+  vars_files:
+    - vars/defaults.yml
+
+  tasks:
+    - name: Parar y deshabilitar {{ iidr_as_service }}
+      ansible.builtin.systemd:
+        name: "{{ iidr_as_service }}"
+        state: stopped
+        enabled: false
+      become: true
+      failed_when: false
+
+    - name: Esperar a que el Access Server cierre el puerto {{ iidr_as_port }}
+      ansible.builtin.wait_for:
+        host: localhost
+        port: "{{ iidr_as_port }}"
+        state: stopped
+        timeout: "{{ iidr_as_stop_timeout }}"
+      register: _as_stopped
+      ignore_errors: true
+
+    - name: Resumen de la parada
+      ansible.builtin.debug:
+        msg:
+          access_server: "{{ inventory_hostname }}"
+          puerto_cerrado: "{{ _as_stopped is not failed }}"

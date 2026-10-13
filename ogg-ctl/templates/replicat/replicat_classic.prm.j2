@@ -1,0 +1,34 @@
+REPLICAT {{ replicat_name }}
+{% if target == 'oracle' %}
+USERIDALIAS {{ useridalias }}{% if domain %} DOMAIN {{ domain }}{% endif %}
+{% endif %}
+
+-- Capture DDL operations for listed schema tables
+DDL INCLUDE MAPPED
+
+-- Add step-by-step history of ddl operations captured to the report file
+DDLOPTIONS REPORT
+
+-- Write capture stats per table to the report file daily.
+REPORT AT 00:01
+
+-- Rollover the report file weekly
+REPORTROLLOVER AT 00:01 ON SUNDAY
+
+-- Report total operations captured, and operations per second
+REPORTCOUNT EVERY 5 MINUTES, RATE
+
+{% if sourcecatalog %}
+-- Specifies PDB/catalog
+SOURCECATALOG {{ sourcecatalog }}
+{% endif %}
+
+-- MAP tables
+{% for line in map_lines %}
+{{ line }}
+{% endfor %}
+
+
+
+
+

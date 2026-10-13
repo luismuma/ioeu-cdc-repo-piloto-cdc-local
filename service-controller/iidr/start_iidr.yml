@@ -1,0 +1,255 @@
+---
+# start_iidr.yml — Arranca los servicios de un entorno IIDR y sus suscripciones.
+#
+# IIDR se controla con servicios systemctl en cada nodo Linux (no una REST API
+# como OGG). El arranque sigue el orden: Access Server → motores → suscripciones.
+# El systemctl del motor origen INTENTA arrancar las suscripciones, pero no es
+# fiable, así que este playbook las arranca explícitamente con iidr.sh.
+#
+# Diseño (patrón service-controller, igual que ogg/):
+#   Play 0 (localhost) — valida vars, resuelve el secreto AWS SM (truststore),
+#                        registra los 3 nodos (AS, motor DB2, motor Kafka).
+#   Play 1 (AS por SSH)          — systemctl start del Access Server, espera puerto 10101.
+#   Play 2 (motores por SSH)     — systemctl start de cdc_db2_agent y cdc_kafka_agent.
+#   Play 3 (AS por SSH)          — lista las suscripciones y arranca las que no estén activas.
+#
+# Variables de survey AAP:
+#   iidr_env   — 'dev' | 'pre' | 'pro'
+#   iidr_as_host      — hostname/FQDN del Access Server
+#   iidr_db2_host     — hostname/FQDN del motor DB2 (origen)
+#   iidr_kafka_host   — hostname/FQDN del motor Kafka (destino)
+#   iidr_source_datastore — (opcional) datastore origen; por defecto el del entorno.
+#
+# Credenciales AAP en el job template:
+#   Machine Credential — ec2-user con sudo NOPASSWD (SSH a los 3 nodos).
+#   Custom Credential AWS SM — inyecta aws_secret_json_<env> (pwd del truststore).
+#
+# Ejemplo local (DEV):
+#   ansible-playbook service-controller/iidr/start_iidr.yml \
+#     -e iidr_env=dev \
+#     -e iidr_as_host=lesawsew131211.es.mapfre.net \
+#     -e iidr_db2_host=lesawsew131209.es.mapfre.net \
+#     -e iidr_kafka_host=lesawsew131210.es.mapfre.net \
+#     -e aws_secret_json_dev="$(cat secret_dev.json)"
+
+
+# ── Play 0: validar, resolver secreto y registrar los nodos ──────────────────
+
+- name: Registrar nodos IIDR y resolver secreto
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    - vars/defaults.yml
+
+  pre_tasks:
+    - name: Validar variables requeridas
+      ansible.builtin.assert:
+        that:
+          - iidr_env in ['dev', 'pre', 'pro']
+          - iidr_as_host is defined and iidr_as_host | length > 0
+          - iidr_db2_host is defined and iidr_db2_host | length > 0
+          - iidr_kafka_host is defined and iidr_kafka_host | length > 0
+        fail_msg: >-
+          Requeridas: iidr_env (dev|pre|pro), iidr_as_host, iidr_db2_host,
+          iidr_kafka_host (por survey AAP o --extra-vars).
+
+  tasks:
+    - name: Resolver secreto del entorno desde AWS SM
+      ansible.builtin.set_fact:
+        _vault: >-
+          {{ (aws_secret_json_dev  if iidr_env == 'dev'  else
+              aws_secret_json_pre  if iidr_env == 'pre'  else
+              aws_secret_json_pro) | from_json }}
+      no_log: true
+
+    - name: Verificar clave del truststore en el secreto
+      ansible.builtin.assert:
+        that:
+          - iidr_key_tls_password in _vault
+          - _vault[iidr_key_tls_password] | length > 0
+        fail_msg: "El secreto no contiene '{{ iidr_key_tls_password }}'."
+
+    - name: Registrar el Access Server
+      ansible.builtin.add_host:
+        name: "{{ iidr_as_host }}"
+        groups: iidr_as
+        _tls_pwd: "{{ _vault[iidr_key_tls_password] }}"
+        _source_datastore: "{{ iidr_source_datastore | default(iidr_datastore_db2_by_env[iidr_env]) }}"
+      no_log: true
+
+    - name: Registrar los motores (DB2 y Kafka)
+      ansible.builtin.add_host:
+        name: "{{ item }}"
+        groups: iidr_engines
+      loop:
+        - "{{ iidr_db2_host }}"
+        - "{{ iidr_kafka_host }}"
+
+
+# ── Play 1: arrancar el Access Server (SSH) ──────────────────────────────────
+
+- name: Arrancar Access Server
+  hosts: iidr_as
+  gather_facts: false
+
+  vars_files:
+    - vars/defaults.yml
+
+  tasks:
+    - name: Habilitar y arrancar {{ iidr_as_service }}
+      ansible.builtin.systemd:
+        name: "{{ iidr_as_service }}"
+        state: started
+        enabled: true
+      become: true
+
+    - name: Esperar a que el Access Server abra el puerto {{ iidr_as_port }}
+      ansible.builtin.wait_for:
+        host: localhost
+        port: "{{ iidr_as_port }}"
+        state: started
+        timeout: "{{ iidr_as_start_timeout }}"
+
+
+# ── Play 2: arrancar los motores de replicación (SSH) ────────────────────────
+# Al arrancar los motores, los datastores quedan disponibles (pero no las subs).
+
+- name: Arrancar motores IIDR (DB2 y Kafka)
+  hosts: iidr_engines
+  gather_facts: true
+
+  vars_files:
+    - vars/defaults.yml
+
+  tasks:
+    # Cada nodo arranca el unit que le corresponde: DB2 en el motor origen,
+    # Kafka en el motor destino. Comprobamos qué unit existe en este host.
+    - name: Detectar qué units cdc_* existen en este nodo
+      ansible.builtin.shell:
+        cmd: "systemctl list-unit-files '{{ item }}' --no-legend | awk '{print $1}'"
+      loop:
+        - "{{ iidr_db2_service }}"
+        - "{{ iidr_kafka_service }}"
+      register: _unit_check
+      changed_when: false
+      failed_when: false
+      become: true
+
+    - name: Habilitar y arrancar los units cdc_* presentes
+      ansible.builtin.systemd:
+        name: "{{ item.item }}"
+        state: started
+        enabled: true
+      become: true
+      loop: "{{ _unit_check.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when: item.stdout | trim | length > 0
+
+
+# ── Play 3: arrancar las suscripciones vía iidr.sh (en el AS, SSH) ───────────
+# El systemctl del motor origen no arranca las subs de forma fiable → lo hacemos
+# aquí explícitamente: listamos las subs del datastore origen y arrancamos las
+# que no estén ya en un estado activo (patrón "start stopped", como OGG).
+
+- name: Arrancar suscripciones IIDR
+  hosts: iidr_as
+  gather_facts: false
+
+  vars_files:
+    - vars/defaults.yml
+
+  tasks:
+    - name: Margen tras arrancar los servicios antes de tocar las suscripciones
+      ansible.builtin.pause:
+        seconds: "{{ iidr_sub_settle_wait }}"
+
+    - name: Listar suscripciones del datastore origen {{ _source_datastore }}
+      ansible.builtin.command:
+        argv:
+          - "{{ iidr_sh_path }}"
+          - subscription
+          - list
+          - --source
+          - "{{ _source_datastore }}"
+      environment:
+        TLS_TRUST_STORE_PASSWORD: "{{ _tls_pwd }}"
+      become: true
+      become_user: "{{ iidr_run_user }}"
+      register: _sub_list
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Parsear la lista de suscripciones
+      ansible.builtin.set_fact:
+        _subs: >-
+          {{ (_sub_list.stdout | from_json).data
+             if (_sub_list.rc == 0 and (_sub_list.stdout | default('') | trim) is match('^\\{'))
+             else [] }}
+
+    - name: Fallar si no se pudo listar las suscripciones
+      ansible.builtin.fail:
+        msg: >-
+          No se pudo listar las suscripciones de '{{ _source_datastore }}'
+          (rc={{ _sub_list.rc }}). Revisar que el Access Server esté operativo
+          y que la pwd del truststore sea correcta.
+      when: _sub_list.rc != 0
+
+    # Arrancamos las que no estén ya activas. "Activa" = igual que en el código
+    # (SubscriptionHelper.isRunning): el estado empieza por 'Mirror' o 'Refresh';
+    # añadimos 'Starting' (arranque en curso) para no relanzarlas. iidr.sh 'start'
+    # es idempotente: desde Failed resetea y arranca (Failed→Starting→Mirror).
+    - name: Arrancar las suscripciones no activas
+      ansible.builtin.command:
+        argv:
+          - "{{ iidr_sh_path }}"
+          - subscription
+          - start
+          - --source
+          - "{{ _source_datastore }}"
+          - --name
+          - "{{ item.name }}"
+      environment:
+        TLS_TRUST_STORE_PASSWORD: "{{ _tls_pwd }}"
+      become: true
+      become_user: "{{ iidr_run_user }}"
+      loop: >-
+        {{ _subs | rejectattr('state', 'match', '^(Mirror|Refresh|Starting)') | list }}
+      loop_control:
+        label: "{{ item.name }}"
+      register: _sub_start
+      changed_when: "'\"status\": \"OK\"' in (_sub_start.stdout | default(''))"
+      failed_when: false
+      no_log: true
+
+    # ── Health check: releer el estado de todas las suscripciones ────────────
+    - name: Releer estado de las suscripciones
+      ansible.builtin.command:
+        argv:
+          - "{{ iidr_sh_path }}"
+          - subscription
+          - list
+          - --source
+          - "{{ _source_datastore }}"
+      environment:
+        TLS_TRUST_STORE_PASSWORD: "{{ _tls_pwd }}"
+      become: true
+      become_user: "{{ iidr_run_user }}"
+      register: _sub_list_final
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Resumen del arranque
+      ansible.builtin.debug:
+        msg:
+          datastore_origen: "{{ _source_datastore }}"
+          suscripciones: >-
+            {{ ((_sub_list_final.stdout | from_json).data
+                | map(attribute='name') | zip((_sub_list_final.stdout | from_json).data
+                | map(attribute='state')) | map('join', ' -> ') | list)
+               if (_sub_list_final.rc == 0 and (_sub_list_final.stdout | default('') | trim) is match('^\\{'))
+               else 'no disponible' }}

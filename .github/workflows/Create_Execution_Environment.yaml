@@ -1,0 +1,262 @@
+name: Build and Deploy Execution Environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Entorno de destino para el Execution Environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - pre
+          - pro
+          - dr
+      base_image:
+        description: 'URL de la imagen origen (base_image)'
+        required: true
+        default: 'quay.io/ansible/ansible-runner:latest'
+        type: string
+      ee_name:
+        description: 'Nombre con el que se publicará el Execution Environment en Automation Hub'
+        required: true
+        default: 'custom-execution-env'
+        type: string
+      import_certs:
+        description: '¿Importar certificados desde ./execution_env/certs/?'
+        required: true
+        type: boolean
+        default: false
+      enable_extra_files:
+        description: '¿Habilitar volcado de extrafiles (./execution_env/extra)?'
+        required: true
+        type: boolean
+        default: false
+      extra_files_dest:
+        description: 'Ruta destino relativa en el contexto de build para extrafiles (ej: files/). Vacío = raíz del contexto'
+        required: false
+        type: string
+        default: ''
+      enable_requirements:
+        description: '¿Añadir dependencias desde ./execution_env/requirements/requirements.txt?'
+        required: true
+        type: boolean
+        default: false
+      ansible_core_version:
+        description: 'Versión de ansible-core a instalar en el EE (ej: ">=2.15"). Dejar vacío si la imagen base ya incluye Ansible.'
+        required: false
+        type: string
+        default: '>=2.15'
+      tls_skip_verify:
+        description: '¿Ignorar verificación de certificados TLS en operaciones podman? (útil en entornos con CA corporativa no confiada)'
+        required: true
+        type: boolean
+        default: false
+      container_runtime:
+        description: 'Runtime de contenedores disponible en el runner'
+        required: true
+        type: choice
+        options:
+          - podman
+          - docker
+        default: podman
+
+jobs:
+  build-and-deploy:
+    runs-on:
+      - self-hosted
+      - mar
+      - ${{ github.event.inputs.environment == 'dr' && 'pro-dr' || github.event.inputs.environment }}
+    environment: ${{ inputs.environment }}
+
+    env:
+      AAP_REGISTRY_dev: "aap-dev.poseidon.mapfre.com"
+      AAP_REGISTRY_pre: "aap-pre.poseidon.mapfre.com"
+      AAP_REGISTRY_pro: "aap.poseidon.mapfre.com"
+
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python en el Runner
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Instalar dependencias de Python y Ansible Builder
+        run: |
+          pip install pyyaml packaging ansible-builder
+
+      - name: Verificar Runtime de Contenedores
+        run: |
+          RUNTIME="${{ github.event.inputs.container_runtime }}"
+          if ! command -v "$RUNTIME" &> /dev/null; then
+            echo "::error::El runtime '$RUNTIME' no está instalado o no está en el PATH del runner. Instálalo en el runner o selecciona otro runtime en el parámetro 'container_runtime'."
+            exit 1
+          fi
+          echo "Runtime '$RUNTIME' disponible: $(${RUNTIME} --version)"
+
+      - name: Validar Existencia de Imagen Base
+        run: |
+          RUNTIME="${{ github.event.inputs.container_runtime }}"
+          TLS_FLAG=""
+          if [ "${{ github.event.inputs.tls_skip_verify }}" = "true" ]; then
+            echo "::warning::Verificación TLS desactivada. No usar en producción."
+            if [ "$RUNTIME" = "podman" ]; then
+              TLS_FLAG="--tls-verify=false"
+            else
+              TLS_FLAG="--insecure"
+            fi
+          fi
+          echo "Comprobando disponibilidad de la imagen origen: ${{ github.event.inputs.base_image }}"
+          if ! "$RUNTIME" manifest inspect $TLS_FLAG "${{ github.event.inputs.base_image }}" 2>&1; then
+            echo "::error::La imagen origen '${{ github.event.inputs.base_image }}' no existe o el runner no tiene acceso a ella. Comprueba que el runner tiene conectividad con el registro y que la URL de la imagen es correcta."
+            exit 1
+          fi
+          echo "Imagen origen validada con éxito."
+
+      - name: Validar Sintaxis de requirements.txt
+        if: ${{ github.event.inputs.enable_requirements == 'true' }}
+        shell: python
+        run: |
+          import os
+          import sys
+          from packaging.requirements import Requirement, InvalidRequirement
+
+          req_path = "execution_env/requirements/requirements.txt"
+          
+          if not os.path.exists(req_path):
+              print(f"::error::El archivo {req_path} no existe en el repositorio pero el checkbox de requisitos está activo.")
+              sys.exit(1)
+          
+          errors = 0
+          print(f"Validando formato de dependencias en: {req_path}")
+          
+          with open(req_path, "r") as f:
+              for line_num, line in enumerate(f, 1):
+                  line = line.strip()
+                  if not line or line.startswith("#"):
+                      continue
+                  
+                  try:
+                      Requirement(line)
+                  except InvalidRequirement as e:
+                      print(f"::error file={req_path},line={line_num}::Error de sintaxis en línea {line_num}: '{line}'. Detalle: {e}")
+                      errors += 1
+          
+          if errors > 0:
+              print(f"::error::Se han detectado {errors} errores en el requirements.txt. Deteniendo el proceso.")
+              sys.exit(1)
+          
+          print("El archivo requirements.txt ha pasado las pruebas de sintaxis corporativas.")
+
+      - name: Generar archivo execution-environment.yml limpio
+        shell: python
+        run: |
+          import yaml
+          import os
+
+          base_image = "${{ github.event.inputs.base_image }}"
+          import_certs = "${{ github.event.inputs.import_certs }}" == "true"
+          enable_extra = "${{ github.event.inputs.enable_extra_files }}" == "true"
+          extra_dest = "${{ github.event.inputs.extra_files_dest }}".strip().lstrip("/") or "."
+          enable_reqs = "${{ github.event.inputs.enable_requirements }}" == "true"
+          ansible_core_version = "${{ github.event.inputs.ansible_core_version }}".strip()
+
+          ee_def = {
+              "version": 3,
+              "images": {
+                  "base_image": {"name": base_image}
+              },
+              "dependencies": {},
+              "additional_build_files": [],
+              "additional_build_steps": {
+                  "prepend_base": [],
+                  "prepend_galaxy": [],
+                  "prepend_builder": [],
+                  "append_final": []
+              }
+          }
+
+          if enable_reqs:
+              ee_def["dependencies"]["python_v3"] = "execution_env/requirements/requirements.txt"
+
+          if ansible_core_version:
+              ee_def["dependencies"]["ansible_core"] = {"package_pip": f"ansible-core{ansible_core_version}"}
+              ee_def["dependencies"]["ansible_runner"] = {"package_pip": "ansible-runner"}
+
+          if enable_extra:
+              if extra_dest != "." and not extra_dest.endswith('/'):
+                  extra_dest += '/'
+              ee_def["additional_build_files"].append({
+                  "src": "execution_env/extra",
+                  "dest": extra_dest
+              })
+
+          if import_certs:
+              ee_def["additional_build_files"].append({
+                  "src": "execution_env/certs",
+                  "dest": "certs/"
+              })
+              ee_def["additional_build_steps"]["prepend_base"] = [
+                  "COPY certs/* /etc/pki/ca-trust/source/anchors/",
+                  "RUN update-ca-trust"
+              ]
+
+          if not ee_def["dependencies"]: del ee_def["dependencies"]
+          if not ee_def["additional_build_files"]: del ee_def["additional_build_files"]
+          if not any(ee_def["additional_build_steps"].values()): del ee_def["additional_build_steps"]
+
+          with open("execution-environment.yml", "w") as f:
+              yaml.dump(ee_def, f, default_flow_style=False)
+          
+          print("--- ARCHIVO GENERADO CON ÉXITO ---")
+          print(yaml.dump(ee_def, default_flow_style=False))
+
+      - name: Construir Imagen del Execution Environment
+        run: |
+          ansible-builder build -t ee-custom:${{ github.sha }} --container-runtime ${{ github.event.inputs.container_runtime }}
+
+      - name: Login en Automation Hub Corporativo
+        run: |
+          ENV_NAME="${{ github.event.inputs.environment }}"
+          if [ "$ENV_NAME" = "dev" ]; then TARGET_REGISTRY="${{ env.AAP_REGISTRY_dev }}"; fi
+          if [ "$ENV_NAME" = "pre" ]; then TARGET_REGISTRY="${{ env.AAP_REGISTRY_pre }}"; fi
+          if [ "$ENV_NAME" = "pro" ] || [ "$ENV_NAME" = "dr" ]; then TARGET_REGISTRY="${{ env.AAP_REGISTRY_pro }}"; fi
+          
+          TLS_FLAG=""
+          if [ "${{ github.event.inputs.tls_skip_verify }}" = "true" ] && [ "${{ github.event.inputs.container_runtime }}" = "podman" ]; then
+            TLS_FLAG="--tls-verify=false"
+          fi
+          echo "Conectando al registro: $TARGET_REGISTRY con usuario: admin"
+          echo "$HUB_PASSWORD" | ${{ github.event.inputs.container_runtime }} login -u "admin" --password-stdin $TLS_FLAG "$TARGET_REGISTRY"
+        env:
+          HUB_PASSWORD: ${{ secrets.AUTOMATIONHUB_ADMIN_PASSWORD }}
+
+      - name: Subir Imagen (Push) a Automation Hub
+        run: |
+          ENV_NAME="${{ github.event.inputs.environment }}"
+          if [ "$ENV_NAME" = "dev" ]; then TARGET_REGISTRY="${{ env.AAP_REGISTRY_dev }}"; fi
+          if [ "$ENV_NAME" = "pre" ]; then TARGET_REGISTRY="${{ env.AAP_REGISTRY_pre }}"; fi
+          if [ "$ENV_NAME" = "pro" ] || [ "$ENV_NAME" = "dr" ]; then TARGET_REGISTRY="${{ env.AAP_REGISTRY_pro }}"; fi
+
+          FINAL_IMAGE="$TARGET_REGISTRY/ee/${{ github.event.inputs.ee_name }}:${{ github.sha }}"
+          
+          TLS_FLAG=""
+          if [ "${{ github.event.inputs.tls_skip_verify }}" = "true" ] && [ "${{ github.event.inputs.container_runtime }}" = "podman" ]; then
+            TLS_FLAG="--tls-verify=false"
+          fi
+          echo "Taggeando y enviando imagen hacia: $FINAL_IMAGE"
+          ${{ github.event.inputs.container_runtime }} tag ee-custom:${{ github.sha }} "$FINAL_IMAGE"
+
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+          until ${{ github.event.inputs.container_runtime }} push $TLS_FLAG "$FINAL_IMAGE"; do
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            if [ "$RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
+              echo "::error::Push fallido tras $MAX_RETRIES intentos."
+              exit 1
+            fi
+            echo "::warning::Push fallido (intento $RETRY_COUNT/$MAX_RETRIES). Reintentando en 10s..."
+            sleep 10
+          done

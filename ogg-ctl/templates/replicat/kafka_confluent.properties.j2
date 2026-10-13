@@ -1,0 +1,28 @@
+# Kafka Connect Handler Template — Replicat {{ replicat_name }}
+gg.handlerlist=kafkaconnect
+gg.handler.kafkaconnect.type=kafkaconnect
+
+# Kafka producer properties file (cluster + identity-pool specific OAuth config)
+gg.handler.kafkaconnect.kafkaProducerConfigFile={{ ogg_data_root | default('/u01/ogg/data') }}/gg_deployments/ogg_daa_rep/{{ deployment_name }}/etc/conf/ogg/kafka_producer_{{ cluster_name | replace('-','_') }}_{{ identity_pool | replace('-','_') }}_{{ env }}_oauth.properties
+
+jvm.bootoptions=-Xms512m -Xmx2048m -Djava.security.auth.login.config={{ ogg_data_root | default('/u01/ogg/data') }}/gg_deployments/ogg_daa_rep/{{ deployment_name }}/etc/conf/ogg/kafka_client_{{ cluster_name | replace('-','_') }}_{{ identity_pool | replace('-','_') }}_{{ env }}_oauth_jaas.conf -Dsource={{ {'ORACLE': 'ORA'}.get(db_engine, db_engine) }}
+
+# Common Settings
+gg.handler.kafkaconnect.topicMappingTemplate={{ kafka_topic_prefix }}.${toLowerCase[${tableName}]}
+gg.handler.kafkaconnect.keyMappingTemplate=${primaryKeys}
+gg.handler.kafkaconnect.mode=op
+gg.handler.kafkaconnect.messageFormatting=op
+gg.handler.kafkaconnect.metaColumnsTemplate=${javaprop.source},${objectname[table]},${optype[opType]},${timestamp[opTs]},${currenttimestamp[loadTs]},${csn[operationId]},${opseqno[operationSeq]},${position[operationPos]}
+
+# Format
+gg.handler.kafkaconnect.converter=avro
+
+## UTC timestamps
+goldengate.userexit.timestamp=utc
+
+# Kafka schemaNamespace = <database>.<schema>
+gg.handler.kafkaconnect.schemaNamespace={{ database }}.{{ schema }}
+
+# Set Classpath (Kafka client libraries)
+gg.classpath=/u01/ogg/dependencies/kafka_confluent_7.5.0/*
+

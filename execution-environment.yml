@@ -1,0 +1,62 @@
+---
+# Execution Environment definition for the cdc-controller AAP project.
+#
+# Build (locally / on the build host):
+#   ansible-builder build \
+#       -t cdc-controller-ee:1.0 \
+#       -f execution-environment.yml \
+#       --container-runtime podman           # or docker
+#
+# Push to your container registry (replace with your real registry/repo):
+#   podman tag cdc-controller-ee:1.0 your-registry.example.com/aap/cdc-controller-ee:1.0
+#   podman push your-registry.example.com/aap/cdc-controller-ee:1.0
+#
+# Register in AAP:
+#   Administration -> Execution Environments -> Add
+#     Name      : cdc-controller-ee:1.0
+#     Image     : your-registry.example.com/aap/cdc-controller-ee:1.0
+#     Registry  : (a Container Registry credential that can pull from there)
+#   Then set this EE on the Job Template that runs the cdc-controller playbooks.
+
+version: 3
+
+images:
+  base_image:
+    # AAP 2.5 supported EE (needs RHEL entitlement). Alternatives:
+    #   - quay.io/ansible/awx-ee:latest                                     (free upstream)
+    #   - registry.access.redhat.com/ubi9/python-311                        (UBI; add ansible-core manually)
+    name: registry.redhat.io/ansible-automation-platform-25/ee-supported-rhel9:latest
+
+dependencies:
+  # Python packages required by cdc-controller (oracledb, pymongo, ibm_db, PyYAML, requests, jinja2, ...).
+  python: requirements.txt
+
+  # System (rpm) packages required by some of those wheels and by the Oracle Instant Client.
+  system: bindep.txt
+
+  # Ansible Galaxy collections used by the playbooks.
+  galaxy: ansible-playbooks/requirements.yml
+
+# Files copied into the build context that we then reference from build steps.
+# Place the Oracle Instant Client zip in build/oracle/ BEFORE building the image.
+# (download from https://www.oracle.com/database/technologies/instant-client/linux-x86-64-downloads.html
+#  or get it from your internal artifact repo)
+additional_build_files:
+  - src: build/oracle/instantclient-basic-linux.x64.zip
+    dest: oracle
+
+additional_build_steps:
+  # Run as root for rpm install + unzip + permissions on /opt/oracle.
+  # The base EE switches back to a non-root user implicitly at runtime.
+  append_final: |
+    USER root
+    RUN mkdir -p /opt/oracle \
+     && cd /opt/oracle \
+     && unzip /build/_build/oracle/instantclient-basic-linux.x64.zip \
+     && rm -f /build/_build/oracle/instantclient-basic-linux.x64.zip \
+     && IC_DIR="$(ls -d /opt/oracle/instantclient_* | head -1)" \
+     && echo "Oracle Instant Client at: $IC_DIR" \
+     && ln -sfn "$IC_DIR" /opt/oracle/instantclient
+    ENV LD_LIBRARY_PATH=/opt/oracle/instantclient:${LD_LIBRARY_PATH}
+    ENV PATH=/opt/oracle/instantclient:${PATH}
+    ENV ORACLE_HOME=/opt/oracle/instantclient

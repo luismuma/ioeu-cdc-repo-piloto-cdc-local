@@ -1,0 +1,224 @@
+---
+# CDC Deployment Inventory 
+#
+# Structure:
+#   defaults:       shared settings inherited by every deployment
+#   <DEPLOY_KEY>:   deployment-specific settings (override defaults as needed)
+#
+# The deployment key is passed to oggctl.py via --deployment.
+
+defaults:
+  verify_tls:                false
+  suppress_insecure_warning: true
+  timeout:                   [30, 180]
+  domain:                    "OracleGoldenGate"
+  description:               "Created via automation"
+  purge_retention_primary:   "30"
+  purge_retention_initial:   "15"
+  api_version:               "v2"
+  nginx_proxy:               true
+  admin_user:                "oggadmin"
+  ogg_credential_dev:        "oggadmin-dev-credential"
+  ogg_credential_pre:        "oggadmin-pre-credential"
+  ogg_credential_pro:        "oggadmin-pro-credential"
+  entraid_tenant_id:         "5cc6c66d-ffb2-469f-9385-cda840e57836"
+  entraid_client_id_dev:     "a1fff41a-e259-4b6c-ab3d-00c393b880a7"
+  entraid_client_id_pre:     "1a6485db-ec59-424d-a39a-fc0336ddc059"
+  entraid_client_id_pro:     "ff9388c2-26a2-43e0-986e-9b4397a18248"
+  entraid_client_secret:     "OGG_AUTH_PROFILE_CLIENT_SECRET"
+
+# ── POC/Development/Integration (AWS DEV) ───────────────────────────────────────────────────────────
+# OGG Oracle :
+OGG_CDC_ODB_ORA_E01_AWS_DEV:
+  admin_url:  "https://ogg-cdc-odb-ora-e01-aws-dev.es.mapfre.net"
+  deployment: "OGG_CDC_ODB_ORA_E01_AWS_DEV"
+  env:        "DEV"
+  load_type:  "online"
+  proc_type:  "extract"
+  db_engine:  "ORACLE"
+
+OGG_CDC_ODB_DAA_R01_AWS_DEV:
+  admin_url:  "https://ogg-cdc-odb-daa-r01-aws-dev.es.mapfre.net"
+  deployment: "OGG_CDC_ODB_DAA_R01_AWS_DEV"
+  env:        "DEV"
+  load_type:  "online"
+  proc_type:  "replicat"
+  db_engine:  "ORACLE"
+
+OGG_INI_ODB_ORA_E01_AWS_DEV:
+  admin_url:  "https://ogg-ini-odb-ora-e01-aws-dev.es.mapfre.net"
+  deployment: "OGG_INI_ODB_ORA_E01_AWS_DEV"
+  env:        "DEV"
+  load_type:  "initial_load"
+  proc_type:  "extract"
+  db_engine:  "ORACLE"
+
+OGG_INI_ODB_DAA_R01_AWS_DEV:
+  admin_url:  "https://ogg-ini-odb-daa-r01-aws-dev.es.mapfre.net"
+  deployment: "OGG_INI_ODB_DAA_R01_AWS_DEV"
+  env:        "DEV"
+  load_type:  "initial_load"
+  proc_type:  "replicat"
+  db_engine:  "ORACLE"
+
+  
+# OGG Mongo :
+OGG_CDC_MDB_DAA_E01_AWS_DEV:
+  admin_url:  "https://ogg-cdc-mdb-daa-e01-aws-dev.es.mapfre.net"
+  deployment: "OGG_CDC_MDB_DAA_E01_AWS_DEV"
+  env:        "DEV"
+  load_type:  "online"
+  proc_type:  "extract"
+  db_engine:  "MONGO"
+
+OGG_CDC_MDB_DAA_R01_AWS_DEV:
+  admin_url:  "https://ogg-cdc-mdb-daa-r01-aws-dev.es.mapfre.net"
+  deployment: "OGG_CDC_MDB_DAA_R01_AWS_DEV"
+  env:        "DEV"
+  load_type:  "online"
+  proc_type:  "replicat"
+  db_engine:  "MONGO"
+
+# IIDR DB2 :
+#IIDR_GR_DB2_DB2_E01_AWS_DEV:
+#  admin_url:  "https://.es.mapfre.net"
+#  deployment: ""
+#  env:        "DEV"
+#  load_type:  "online"
+#  proc_type:  "extract"
+#  db_engine:  "DB2"
+#
+#IIDR_GR_DB2_DB2_E01_AWS_DEV:
+#  admin_url:  "https://.es.mapfre.net"
+#  deployment: ""
+#  env:        "DEV"
+#  load_type:  "online"
+#  proc_type:  "replicat"
+#  db_engine:  "DB2"
+
+# ── Preproduction (AWS PRE) ───────────────────────────────────────────────────────────
+# OGG Oracle :
+OGG_CDC_ODB_ORA_E01_AWS_PRE:
+  admin_url:  "https://ogg-cdc-odb-ora-e01-aws-pre.es.mapfre.net"
+  deployment: "OGG_CDC_ODB_ORA_E01_AWS_PRE"
+  env:        "PRE"
+  load_type:  "online"
+  proc_type:  "extract"
+  db_engine:  "ORACLE"
+
+OGG_CDC_ODB_DAA_R01_AWS_PRE:
+  admin_url:  "https://ogg-cdc-odb-daa-r01-aws-pre.es.mapfre.net"
+  deployment: "OGG_CDC_ODB_DAA_R01_AWS_PRE"
+  env:        "PRE"
+  load_type:  "online"
+  proc_type:  "replicat"
+  db_engine:  "ORACLE"
+
+OGG_INI_ODB_ORA_E01_AWS_PRE:
+  admin_url:  "https://ogg-ini-odb-ora-e01-aws-pre.es.mapfre.net"
+  deployment: "OGG_INI_ODB_ORA_E01_AWS_PRE"
+  env:        "PRE"
+  load_type:  "initial_load"
+  proc_type:  "extract"
+  db_engine:  "ORACLE"
+
+OGG_INI_ODB_DAA_R01_AWS_PRE:
+  admin_url:  "https://ogg-ini-odb-daa-r01-aws-pre.es.mapfre.net"
+  deployment: "OGG_INI_ODB_DAA_R01_AWS_PRE"
+  env:        "PRE"
+  load_type:  "initial_load"
+  proc_type:  "replicat"
+  db_engine:  "ORACLE"
+
+# OGG Mongo :
+OGG_CDC_MDB_DAA_E01_AWS_PRE:
+  admin_url:  "https://ogg-cdc-mdb-daa-e01-aws-pre.es.mapfre.net"
+  deployment: "OGG_CDC_MDB_DAA_E01_AWS_PRE"
+  env:        "PRE"
+  load_type:  "online"
+  proc_type:  "extract"
+  db_engine:  "MONGO"
+
+OGG_GR_MDB_DAA_R01_AWS_PRE:
+  admin_url:  "https://ogg-cdc-mdb-daa-r01-aws-pre.es.mapfre.net"
+  deployment: "OGG_GR_MDB_DAA_R01_AWS_PRE"
+  env:        "PRE"
+  load_type:  "online"
+  proc_type:  "replicat"
+  db_engine:  "MONGO"
+
+# IIDR DB2 :
+
+
+
+
+# ── Production (AWS PRO-REAL) ───────────────────────────────────────────────────────────
+## DR & HA TESTING DEPLOYMENTS 
+#OGG_DR_ODB_ORA_E01_AWS_PRO:
+#  admin_url:  "https://ogg-dr-odb-ora-e01-aws-pro.es.mapfre.net"
+#  deployment: "OGG_DR_ODB_ORA_E01_AWS_PRO"
+#  env:        "PRO"
+#  load_type:  "online"
+#  proc_type:  "extract"
+#  db_engine:  "ORACLE"
+
+#OGG_DR_ODB_DAA_R01_AWS_PRO:
+#  admin_url:  "https://ogg-dr-odb-daa-r01-aws-pro.es.mapfre.net"
+#  deployment: "OGG_DR_ODB_DAA_R01_AWS_PRO"
+#  env:        "PRO"
+#  load_type:  "online"
+#  proc_type:  "replicat"
+#  db_engine:  "ORACLE"
+
+# OGG Oracle :
+OGG_CDC_ODB_ORA_E01_AWS_PRO:
+  admin_url:  "https://ogg-cdc-odb-ora-e01-aws-pro.es.mapfre.net"
+  deployment: "OGG_CDC_ODB_ORA_E01_AWS_PRO"
+  env:        "PRO"
+  load_type:  "online"
+  proc_type:  "extract"
+  db_engine:  "ORACLE"
+
+OGG_CDC_ODB_DAA_R01_AWS_PRO:
+  admin_url:  "https://ogg-cdc-odb-daa-r01-aws-pro.es.mapfre.net"
+  # admin_url:  "https://LESAWSEW161157.es.mapfre.net"
+  deployment: "OGG_CDC_ODB_DAA_R01_AWS_PRO"
+  env:        "PRO"
+  load_type:  "online"
+  proc_type:  "replicat"
+  db_engine:  "ORACLE"
+
+OGG_INI_ODB_ORA_E01_AWS_PRO:
+  admin_url:  "https://ogg-ini-odb-ora-e01-aws-pro.es.mapfre.net"
+  deployment: "OGG_INI_ODB_ORA_E01_AWS_PRO"
+  env:        "PRO"
+  load_type:  "initial_load"
+  proc_type:  "extract"
+  db_engine:  "ORACLE"
+
+OGG_INI_ODB_DAA_R01_AWS_PRO:
+  admin_url:  "https://ogg-ini-odb-daa-r01-aws-pro.es.mapfre.net"
+  deployment: "OGG_INI_ODB_DAA_R01_AWS_PRO"
+  env:        "PRO"
+  load_type:  "initial_load"
+  proc_type:  "replicat"
+  db_engine:  "ORACLE"
+
+# OGG Mongo :
+OGG_CDC_MDB_DAA_E01_AWS_PRO:
+  admin_url:  "https://ogg-cdc-mdb-daa-e01-aws-pro.es.mapfre.net"
+  deployment: "OGG_CDC_MDB_DAA_E01_AWS_PRO"
+  env:        "PRO"
+  load_type:  "online"
+  proc_type:  "extract"
+  db_engine:  "MONGO"
+
+OGG_GR_MDB_DAA_R01_AWS_PRO:
+  admin_url:  "https://ogg-cdc-mdb-daa-r01-aws-pro.es.mapfre.net"
+  deployment: "OGG_GR_MDB_DAA_R01_AWS_PRO"
+  env:        "PRO"
+  load_type:  "online"
+  proc_type:  "replicat"
+  db_engine:  "MONGO"
+
+# IIDR DB2 :

@@ -1,0 +1,45 @@
+---
+# IIDR service-controller defaults — arranque/parada de los servicios IIDR.
+#
+# A diferencia de OGG (Microservices, controlado por REST API vía oggctl.py),
+# IIDR se controla con servicios systemctl en cada nodo Linux + iidr.sh para
+# las suscripciones. Ver service-controller/iidr/{start,stop}_iidr.yml.
+
+# ── Servicios systemctl (units) por rol ──────────────────────────────────────
+# El mismo nombre de unit en los tres entornos; cambia la máquina.
+iidr_as_service: "cdc_access_server.service"      # Access Server
+iidr_db2_service: "cdc_db2_agent.service"         # Motor DB2 z/OS (origen)
+iidr_kafka_service: "cdc_kafka_agent.service"     # Motor Kafka (destino)
+
+# ── Puerto del Access Server (para el sondeo de disponibilidad) ───────────────
+iidr_as_port: 10101
+
+# ── iidr.sh (CLI que arranca/para las suscripciones) ─────────────────────────
+# Vive en el NFS, misma ruta en todos los entornos. Se ejecuta en el AS.
+iidr_sh_path: "/u01/repo/automation/iidr-ctl/bin/iidr.sh"
+
+# ── Usuarios SSH / escalada ──────────────────────────────────────────────────
+# El SSH entra como ec2-user (Machine Credential de AAP con sudo NOPASSWD).
+# systemctl escala a root; iidr.sh se ejecuta como cdcuser (operación día a día).
+iidr_run_user: "cdcuser"
+
+# ── Datastores por entorno ───────────────────────────────────────────────────
+# El datastore origen (DB2) es el 'source' que iidr.sh usa para listar/arrancar
+# las suscripciones. El destino (Kafka) es informativo.
+iidr_datastore_db2_by_env:
+  dev: "IIDR_GR_DB2_E01_AWS_DEV"
+  pre: "IIDR_GR_DB2_DB2_E01_AWS_PRE"
+  pro: "IIDR_GR_DB2_DB2_E01_AWS_PRO"
+iidr_datastore_kafka_by_env:
+  dev: "IIDR_GR_KFK_R01_AWS_DEV"
+  pre: "IIDR_GR_DB2_KFK_R01_AWS_PRE"
+  pro: "IIDR_GR_DB2_KFK_R01_AWS_PRO"
+
+# ── Clave del secreto AWS SM con la pwd del truststore del AS ─────────────────
+# Secreto CDC-IIDR-VAULT-<ENV> (región eu-west-1), objeto JSON plano.
+iidr_key_tls_password: "IIDR_AS_KEYSTORE_PASSWORD"
+
+# ── Timeouts (segundos) ──────────────────────────────────────────────────────
+iidr_as_start_timeout: 120     # esperar a que el AS abra el puerto 10101
+iidr_as_stop_timeout: 60       # esperar a que el AS cierre el puerto
+iidr_sub_settle_wait: 10       # margen tras arrancar servicios antes de tocar subs

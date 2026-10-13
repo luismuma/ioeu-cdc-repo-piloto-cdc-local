@@ -1,0 +1,75 @@
+---
+## Parada de servicios IIDR en las TRES ubicaciones (AZ-A, AZ-B, DR).
+##
+## Parte del rediseño del switch DR (2026-09-22). El switch real ya NO es un
+## único playbook automatizado: entre la parada y el arranque hay pasos MANUALES
+## (petición de cambio de DNS ~1h + cambio del sentido de replicación del EFS).
+## Por eso el switch se parte en dos operaciones:
+##   1. PARADA de servicios en todas las ubicaciones  ← este playbook
+##   2. (manual) cambio de DNS + (manual) sentido EFS
+##   3. ARRANQUE de servicios en el target            ← service-controller/iidr/start_iidr.yml
+##      (o el arranque que corresponda a la ubicación destino)
+##
+## Este playbook NO toca /etc/hosts (el DNS es ahora una petición real, ya no se
+## emula) y NO gestiona suscripciones (solo los servicios systemctl). Para las
+## tres ubicaciones a la vez, así no hay que llevar la cuenta de dónde estaban
+## corriendo los servicios: se paran allá donde estuvieran.
+##
+## NO sustituye ni borra iidr_dr_switch.yml — convive con él.
+##
+## Required extra-vars (AAP extra vars / prompt on launch):
+##   iidr_env  - normalmente 'prod' (DR solo existe para producción).
+##
+## Inventario requerido en AAP (grupos reales, igual que iidr_dr_switch.yml):
+##   [iidr_az_a_<env>]  AS+DB2+Kafka de AZ-A Irlanda
+##   [iidr_az_b_<env>]  AS+DB2+Kafka de AZ-B Irlanda
+##   [iidr_dr_<env>]    AS+DB2+Kafka de Frankfurt (región DR)
+##
+## Job Template AAP: inventario real con esos grupos, Machine Credential
+## (ec2-user con sudo NOPASSWD). SIN credencial AWS SM. Sin "Enable privilege
+## escalation" (escala por tarea con become: true).
+
+- name: Parar servicios IIDR en las tres ubicaciones (AZ-A, AZ-B, DR)
+  hosts: "iidr_az_a_{{ iidr_env }}:iidr_az_b_{{ iidr_env }}:iidr_dr_{{ iidr_env }}"
+  become: false
+  gather_facts: false
+
+  vars:
+    # Units systemctl de IIDR (mismos nombres en todos los nodos/entornos).
+    iidr_services:
+      - cdc_access_server.service   # Access Server
+      - cdc_db2_agent.service       # Motor DB2 z/OS (origen)
+      - cdc_kafka_agent.service     # Motor Kafka (destino)
+
+  tasks:
+
+    # Cada nodo tiene solo el/los unit(s) de su rol. Detectamos cuáles existen
+    # para no fallar al parar un unit ausente (aunque failed_when: false ya lo
+    # cubriría, esto evita ruido y deja claro qué se para en cada host).
+    - name: Detectar qué units cdc_* existen en este nodo
+      ansible.builtin.shell:
+        cmd: "systemctl list-unit-files '{{ item }}' --no-legend | awk '{print $1}'"
+      loop: "{{ iidr_services }}"
+      register: _unit_check
+      changed_when: false
+      failed_when: false
+      become: true
+
+    - name: Parar y deshabilitar los units cdc_* presentes
+      ansible.builtin.systemd:
+        name: "{{ item.item }}"
+        state: stopped
+        enabled: false
+      become: true
+      loop: "{{ _unit_check.results }}"
+      loop_control:
+        label: "{{ inventory_hostname }} :: {{ item.item }}"
+      when: item.stdout | trim | length > 0
+      failed_when: false
+
+    - name: Resumen de parada en este nodo
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} — units parados:
+          {{ _unit_check.results | selectattr('stdout', 'truthy')
+             | map(attribute='item') | list }}

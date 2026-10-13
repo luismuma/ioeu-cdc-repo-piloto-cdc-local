@@ -1,0 +1,160 @@
+---
+## Conmuta los servicios IIDR entre las tres ubicaciones posibles del servicio:
+## AZ-A Irlanda, AZ-B Irlanda y DR Frankfurt (eu-central-1).
+##
+## A diferencia del switch HA (solo AZ-A ↔ AZ-B, misma región), este playbook trata
+## las tres ubicaciones por igual y es simétrico: sirve tanto para ir a DR como para
+## volver de DR a cualquiera de las dos AZ de Irlanda. El EFS de Frankfurt es un
+## volumen distinto, replicado asíncronamente desde Irlanda por AWS (RPO ~10-15 min).
+##
+## Acciones:
+##   1. Para y deshabilita los servicios en las DOS ubicaciones que NO quedan activas.
+##      Se paran sin importar su estado previo (failed_when: false): si ya estaban
+##      paradas no pasa nada.
+##   2. Actualiza /etc/hosts en TODOS los nodos (las 2 AZ de Irlanda + los 3 de
+##      Frankfurt) con las IPs de la ubicación que pasa a ser activa.
+##   3. Habilita y arranca los servicios en la ubicación activa.
+##
+## IMPORTANTE — parada limpia previa:
+##   Antes de ejecutar, las suscripciones deben haberse parado limpiamente desde
+##   iidr-admin para que los checkpoints finales queden escritos en el EFS de origen.
+##   Con el switch por DNS real (~1h de propagación) la replicación EFS tiene margen
+##   de sobra para propagar esos checkpoints antes del arranque en el destino.
+##
+## ADVERTENCIA: asegurarse de que los nodos de la ubicación destino están encendidos
+## y accesibles por SSH. Los de las otras ubicaciones deben estar accesibles para
+## parar los servicios (si no lo están, el paso 1 los ignora por failed_when: false).
+##
+## Required extra-vars (AAP extra vars / prompt on launch):
+##   iidr_env                 - debe ser 'prod' (DR solo existe para producción).
+##   iidr_dr_target_location  - 'a' | 'b' | 'dr' — ubicación que queda ACTIVA tras el switch.
+##
+## Inventario requerido en AAP:
+##   [iidr_az_a_prod]  AS+DB2+Kafka de AZ-A Irlanda
+##   [iidr_az_b_prod]  AS+DB2+Kafka de AZ-B Irlanda
+##   [iidr_dr_prod]    AS+DB2+Kafka de Frankfurt (región DR)
+##   Este playbook no usa target_host.
+
+- name: Parar servicios en las ubicaciones que NO quedan activas
+  hosts: "iidr_az_a_{{ iidr_env }}:iidr_az_b_{{ iidr_env }}:iidr_dr_{{ iidr_env }}"
+  become: false
+  gather_facts: false
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/{{ iidr_env }}/vars_iidr_dr.yml"
+  vars:
+    _active_group: >-
+      {{ 'iidr_az_a_' ~ iidr_env if iidr_dr_target_location == 'a' else
+         'iidr_az_b_' ~ iidr_env if iidr_dr_target_location == 'b' else
+         'iidr_dr_'   ~ iidr_env }}
+  tasks:
+
+    - name: Validar iidr_dr_target_location
+      ansible.builtin.assert:
+        that:
+          - iidr_dr_target_location in ['a', 'b', 'dr']
+        fail_msg: "iidr_dr_target_location debe ser 'a', 'b' o 'dr' (recibido: {{ iidr_dr_target_location | default('<undef>') }})"
+      run_once: true
+
+    - name: Parar cdc_access_server (si existe)
+      ansible.builtin.systemd:
+        name: cdc_access_server
+        state: stopped
+        enabled: false
+      become: true
+      failed_when: false
+      when: inventory_hostname not in groups[_active_group]
+
+    - name: Parar cdc_db2_agent (si existe)
+      ansible.builtin.systemd:
+        name: cdc_db2_agent
+        state: stopped
+        enabled: false
+      become: true
+      failed_when: false
+      when: inventory_hostname not in groups[_active_group]
+
+    - name: Parar cdc_kafka_agent (si existe)
+      ansible.builtin.systemd:
+        name: cdc_kafka_agent
+        state: stopped
+        enabled: false
+      become: true
+      failed_when: false
+      when: inventory_hostname not in groups[_active_group]
+
+- name: Actualizar /etc/hosts en todos los nodos con las IPs de la ubicación activa
+  hosts: "iidr_az_a_{{ iidr_env }}:iidr_az_b_{{ iidr_env }}:iidr_dr_{{ iidr_env }}"
+  become: false
+  gather_facts: false
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/{{ iidr_env }}/vars_iidr_dr.yml"
+  tasks:
+
+    - name: Actualizar entradas de nombres canónicos en /etc/hosts
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        line: "{{ (item.ip_az_a if iidr_dr_target_location == 'a' else item.ip_az_b if iidr_dr_target_location == 'b' else item.ip_dr) }}\t{{ item.canonical }}"
+        regexp: "\\s{{ item.canonical }}(\\s|$)"
+        state: present
+      loop: "{{ iidr_dr_canonical_hosts }}"
+      become: true
+
+- name: Arrancar servicios en la ubicación activa
+  hosts: >-
+    {{ 'iidr_az_a_' ~ iidr_env if iidr_dr_target_location == 'a' else
+       'iidr_az_b_' ~ iidr_env if iidr_dr_target_location == 'b' else
+       'iidr_dr_'   ~ iidr_env }}
+  become: false
+  gather_facts: false
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/{{ iidr_env }}/vars_iidr_dr.yml"
+  tasks:
+
+    - name: Comprobar unit cdc_access_server
+      ansible.builtin.stat:
+        path: /etc/systemd/system/cdc_access_server.service
+      register: as_unit
+      become: true
+
+    - name: Habilitar y arrancar cdc_access_server
+      ansible.builtin.systemd:
+        name: cdc_access_server
+        state: started
+        enabled: true
+      become: true
+      when: as_unit.stat.exists
+
+    - name: Comprobar unit cdc_db2_agent
+      ansible.builtin.stat:
+        path: /etc/systemd/system/cdc_db2_agent.service
+      register: db2_unit
+      become: true
+
+    - name: Habilitar y arrancar cdc_db2_agent
+      ansible.builtin.systemd:
+        name: cdc_db2_agent
+        state: started
+        enabled: true
+      become: true
+      when: db2_unit.stat.exists
+
+    - name: Comprobar unit cdc_kafka_agent
+      ansible.builtin.stat:
+        path: /etc/systemd/system/cdc_kafka_agent.service
+      register: kafka_unit
+      become: true
+
+    - name: Habilitar y arrancar cdc_kafka_agent
+      ansible.builtin.systemd:
+        name: cdc_kafka_agent
+        state: started
+        enabled: true
+      become: true
+      when: kafka_unit.stat.exists
+
+    - name: Resumen
+      ansible.builtin.debug:
+        msg: |
+          === IIDR DR Switch — ubicación '{{ iidr_dr_target_location | upper }}' ahora activa ===
+            /etc/hosts actualizado en Irlanda (AZ-A + AZ-B) y Frankfurt (DR)
+            Servicios arrancados en: {{ inventory_hostname }}

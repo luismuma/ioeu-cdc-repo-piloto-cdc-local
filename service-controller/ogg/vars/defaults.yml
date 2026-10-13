@@ -1,0 +1,31 @@
+---
+# OGG Microservices installation paths — must match ioeu-cdc-ogg-install-deploy defaults.
+ogg_home: "/u01/ogg/ogg26ai"
+ogg_deployment_home: "/u01/ogg/data/gg_deployments"
+
+# OS user that owns OGG processes and EFS files.
+ogg_user: "oracle"
+
+# OGG web UI / REST API admin user.
+ogg_admin: "oggadmin"
+
+# Fixed OGG Microservices ports (same on every node).
+ogg_sm_port: 9011       # Service Manager
+ogg_admin_port: 9012    # Admin Service
+
+# Timeout in seconds for individual REST API calls.
+ogg_api_timeout: 30
+
+# How long (seconds) to wait for each process to reach stopped state.
+ogg_stop_wait_sec: 300
+
+# How long (seconds) to wait for the Service Manager to come up.
+ogg_sm_start_timeout: 120
+
+# How long (seconds) to wait for the Service Manager to go down.
+ogg_sm_stop_timeout: 60
+
+# Set to true to bypass the binary version parity check in start_ogg.yml.
+# Useful only when you are certain the binaries are compatible despite a
+# differing version string. Default: false (fail on mismatch).
+ogg_skip_version_check: false

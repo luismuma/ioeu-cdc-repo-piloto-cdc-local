@@ -1,0 +1,67 @@
+{#
+  Plantilla de los ficheros de conexión del MOTOR Kafka de IIDR a Confluent
+  Cloud (broker + Schema Registry, con OAuth OAUTHBEARER). Genera tanto
+  kafkaproducer.properties como kafkaconsumer.properties: son idénticos salvo
+  que el producer añade 'batch.size' (sección "Generic confluent properties").
+
+  Se depositan en el conf de la INSTANCIA del datastore destino, en el motor:
+    /u01/IIDR/ReplicationEngineforKafka_Data/instance/<KAFKA_DS>/conf/
+      kafkaproducer.properties
+      kafkaconsumer.properties
+
+  El motor los EXIGE para autenticarse OAuth contra el broker Confluent Cloud
+  (la vía Management Console / 'modify subscription kafka properties' es un
+  placeholder insuficiente). Un datastore recién instalado por iidr-install los
+  tiene vacíos/esqueleto: este render los "cablea" a una unidad funcional.
+
+  Variables esperadas (no secretas, de target_connections.yaml):
+    ke_bootstrap_servers     bootstrap.servers del cluster (lkc-*...:9092)
+    ke_oauth_endpoint_url    endpoint OAuth del token (issuer)
+    ke_client_id             client id OAuth (service principal)
+    ke_api_scope             scope OAuth (api://<client_id>/.default)
+    ke_cluster_id            logical cluster del broker (lkc-*)   -> extension_logicalCluster
+    ke_identity_pool         identity pool (pool-*)
+    ke_schema_registry_url   URL del Schema Registry
+    ke_schema_registry_id    logical cluster del Schema Registry (lsrc-*)
+  Secreto (de AWS Secret Manager, clave nombrada por client_secret_credential):
+    ke_client_secret         client secret OAuth (mismo valor para broker y SR)
+  Control de render:
+    ke_is_producer           true -> incluye batch.size (producer); false -> consumer
+-#}
+#Default values are provided as below: 'retries' is used for retry times and 'retry.backoff.ms' is for sleep time during each retry
+#Generado por iidr-admin (kafka_engine.properties.j2) — no editar a mano
+
+# Bootstrap server
+bootstrap.servers={{ ke_bootstrap_servers }}
+
+# ==========================================================
+# Kafka broker security - OAUTH
+# ==========================================================
+sasl.mechanism=OAUTHBEARER
+security.protocol=SASL_SSL
+sasl.login.callback.handler.class=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginCallbackHandler
+sasl.oauthbearer.token.endpoint.url={{ ke_oauth_endpoint_url }}
+sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required \
+  clientId="{{ ke_client_id }}" \
+  clientSecret="{{ ke_client_secret }}" \
+  scope="{{ ke_api_scope }}" \
+  extension_logicalCluster="{{ ke_cluster_id }}" \
+  extension_identityPoolId="{{ ke_identity_pool }}";
+
+# Schema Registry via OAuth
+schema.registry.url={{ ke_schema_registry_url }}
+
+# OAuth para Schema Registry
+bearer.auth.credentials.source=OAUTHBEARER
+bearer.auth.issuer.endpoint.url={{ ke_oauth_endpoint_url }}
+bearer.auth.client.id={{ ke_client_id }}
+bearer.auth.client.secret={{ ke_client_secret }}
+bearer.auth.scope={{ ke_api_scope }}
+bearer.auth.logical.cluster={{ ke_schema_registry_id }}
+bearer.auth.identity.pool.id={{ ke_identity_pool }}
+{% if ke_is_producer | default(false) | bool %}
+
+
+#Generic confluent properties
+batch.size=65536
+{% endif %}

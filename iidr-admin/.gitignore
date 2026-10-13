@@ -1,0 +1,28 @@
+# Build output
+target/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Runtime logs y estadísticas
+log/
+stats/
+
+# Clases IIDR desempaquetadas en la raíz del proyecto (no deben estar en el
+# repo). Ancladas con "/" para NO ignorar el código fuente en
+# src/main/java/com/mapfre/... (sin el "/" inicial, "com/" matchea cualquier
+# directorio com/ a cualquier profundidad y se tragaba todo el src).
+/com/
+/META-INF/
+/dependencies/
+
+# Configuración real con credenciales (usar los .template)
+tls.properties
+conf/iidr.properties
+conf/cdc_truststore_AccessServer.p12
+conf/table_subscription_registry.csv
+
+# OS
+.DS_Store

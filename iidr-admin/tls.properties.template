@@ -1,0 +1,3 @@
+trustStorePath=conf/cdc_truststore_AccessServer.p12
+trustStorePassword=<<KEYSTORE_PASS>>
+trustStoreType=PKCS12

@@ -1,0 +1,69 @@
+# ==========================================================
+# Kafka broker connection - {{ env }}
+# ==========================================================
+bootstrap.servers={{ bootstrap_servers }}
+
+
+# ==========================================================
+# Kafka broker security - OAUTH
+# ==========================================================
+sasl.mechanism=OAUTHBEARER
+security.protocol=SASL_SSL
+sasl.login.callback.handler.class=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginCallbackHandler
+sasl.oauthbearer.token.endpoint.url={{ oauth_endpoint_url }}
+sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required \
+clientId="ORACLEWALLETUSERNAME[{{ ogg_alias_credential }} {{ kafka_oauth_domain | default('OracleGoldenGate') }}]" \
+clientSecret="ORACLEWALLETPASSWORD[{{ ogg_alias_credential }} {{ kafka_oauth_domain | default('OracleGoldenGate') }}]" \
+scope="{{ api_scope }}" \
+extension_logicalCluster="{{ cluster_id }}" \
+extension_identityPoolId="{{ identity_pool }}";
+
+
+# ==========================================================
+# Reliability / producer behavior
+# ==========================================================
+#acks=all
+#retries=10
+#enable.idempotence=true
+#max.in.flight.requests.per.connection=5
+#request.timeout.ms=30000
+#delivery.timeout.ms=120000
+#linger.ms=10
+#batch.size=65536
+#compression.type=snappy
+
+
+# ==========================================================
+# Kafka Connect converters
+# REQUIRED for kafkaconnect handler
+# ==========================================================
+key.converter=io.confluent.connect.avro.AvroConverter
+value.converter=io.confluent.connect.avro.AvroConverter
+
+
+# ==========================================================
+# Schema Registry
+# ==========================================================
+key.converter.schema.registry.url={{ schema_registry_url }}
+value.converter.schema.registry.url={{ schema_registry_url }}
+
+
+# ==========================================================
+# Schema Registry authentication - OAUTH
+# ==========================================================
+key.converter.bearer.auth.credentials.source=SASL_OAUTHBEARER_INHERIT
+key.converter.bearer.auth.issuer.endpoint.url={{ oauth_endpoint_url }}
+key.converter.bearer.auth.logical.cluster={{ schema_registry_id }}
+key.converter.bearer.auth.identity.pool.id={{ identity_pool }}
+
+value.converter.bearer.auth.credentials.source=SASL_OAUTHBEARER_INHERIT
+value.converter.bearer.auth.issuer.endpoint.url={{ oauth_endpoint_url }}
+value.converter.bearer.auth.logical.cluster={{ schema_registry_id }}
+value.converter.bearer.auth.identity.pool.id={{ identity_pool }}
+
+
+# ==========================================================
+# Optional schema handling behavior
+# ==========================================================
+key.converter.auto.register.schemas=true
+value.converter.auto.register.schemas=true

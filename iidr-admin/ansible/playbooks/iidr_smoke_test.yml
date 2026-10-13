@@ -1,0 +1,126 @@
+---
+## PILOTO / SMOKE TEST — valida la cadena EE -> SSH(hosts:) a la 11 -> iidr.sh
+##
+## Objetivo: confirmar la vía táctica end-to-end antes de los playbooks de
+## negocio. Ejecuta 'datastore list' (solo lectura).
+##
+## ARQUITECTURA (igual que los playbooks del hermano iidr-install):
+##   - Play 1 (localhost): valida, resuelve el secreto AWS SM (from_json) y
+##     registra el host destino con add_host.
+##   - Play 2 (hosts: <la 11>): Ansible abre SSH REAL al destino y ejecuta
+##     iidr.sh allí (become a cdcuser). NO se usa delegate_to (que no
+##     establecía bien la conexión: corría en el propio EE, sin NFS).
+##
+## Requisitos en AAP (Job Template):
+##   - Playbook: playbooks/iidr_smoke_test.yml
+##   - Execution Environment: el EE custom.
+##   - Machine Credential (ec2-user, SSH a la 11, sudo sin pwd).
+##   - Custom Credential 'cdc-custom-credential' (AWS SM) -> aws_secret_json_*.
+##   - Extra-var opcional: iidr_env (dev|pre|pro). Default: dev.
+
+# ══════════════════════════════════════════════════════════════════════
+# PLAY 1 — en el EE (localhost): resolver secreto + registrar host destino
+# ══════════════════════════════════════════════════════════════════════
+- name: Preparar (localhost) — secreto AWS SM y host destino
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    # Host destino de la vía táctica: la máquina 11 (AS de DEV), que ya
+    # tiene Java + JARs de IIDR + iidr.sh + truststore. SIEMPRE FQDN.
+    iidr_exec_host: lesawsew131211.es.mapfre.net
+    # Clave del secreto AWS SM con la pwd del truststore del AS (DEV).
+    iidr_tls_key: IIDR_AS_KEYSTORE_PASSWORD
+
+  tasks:
+    - name: "Resolver iidr_env (extra-var o 'dev')"
+      ansible.builtin.set_fact:
+        iidr_env: "{{ iidr_env | default('dev', true) }}"
+
+    - name: "Cargar secrets del entorno desde AWS SM"
+      ansible.builtin.set_fact:
+        _vault: >-
+          {{ (aws_secret_json_dev  if iidr_env == 'dev'  else
+              aws_secret_json_pre  if iidr_env == 'pre'  else
+              aws_secret_json_pro) | from_json }}
+      no_log: true
+
+    - name: "Verificar presencia de la clave del truststore (sin mostrar valor)"
+      ansible.builtin.assert:
+        that:
+          - iidr_tls_key in _vault
+          - _vault[iidr_tls_key] | length > 0
+        fail_msg: "El secreto no contiene '{{ iidr_tls_key }}' (o vacía)."
+        success_msg: "Clave '{{ iidr_tls_key }}' presente en el secreto."
+
+    - name: "Registrar host destino {{ iidr_exec_host }}"
+      ansible.builtin.add_host:
+        name: "{{ iidr_exec_host }}"
+        groups: iidr_exec
+        _tls_pwd: "{{ _vault[iidr_tls_key] }}"
+        _iidr_env: "{{ iidr_env }}"
+      no_log: true
+
+# ══════════════════════════════════════════════════════════════════════
+# PLAY 2 — en la 11 (SSH real): ejecutar iidr.sh datastore list
+# ══════════════════════════════════════════════════════════════════════
+- name: Ejecutar (en la 11) — datastore list
+  hosts: iidr_exec
+  gather_facts: false
+  become: true
+  become_user: cdcuser
+
+  vars:
+    iidr_sh_path: /u01/repo/automation/iidr-ctl/bin/iidr.sh
+
+  tasks:
+    - name: "Confirmar que estamos en el host destino (hostname + NFS)"
+      ansible.builtin.shell: |
+        echo "hostname: $(hostname)"
+        echo "iidr.sh: $(test -f {{ iidr_sh_path }} && echo EXISTE || echo NO-EXISTE)"
+      register: diag
+      changed_when: false
+
+    - name: "Diag — salida"
+      ansible.builtin.debug:
+        var: diag.stdout_lines
+
+    - name: "datastore list"
+      ansible.builtin.shell: "{{ iidr_sh_path }} datastore list"
+      environment:
+        TLS_TRUST_STORE_PASSWORD: "{{ hostvars[inventory_hostname]._tls_pwd }}"
+      register: iidr_result
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: "Resultado crudo (rc / stdout / stderr)"
+      ansible.builtin.debug:
+        msg:
+          - "rc: {{ iidr_result.rc | default('N/A') }}"
+          - "stdout: {{ iidr_result.stdout | default('(vacío)') }}"
+          - "stderr: {{ iidr_result.stderr | default('(vacío)') }}"
+
+    - name: "Parsear JSON (solo si stdout parece JSON)"
+      ansible.builtin.set_fact:
+        _out: "{{ iidr_result.stdout | from_json }}"
+      when: iidr_result.stdout | default('') | trim is match('^\\{')
+
+    - name: "RESULTADO del smoke test"
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'OK — cadena EE->SSH->iidr.sh->AS funciona. status='
+             ~ _out.status ~ ', datastores=' ~ (_out.data | default([]) | length)
+             if _out is defined and _out.status is defined
+             else 'FALLO — revisar rc/stdout/stderr arriba (rc='
+             ~ iidr_result.rc | default('?') ~ ')' }}
+
+    - name: "Marcar fallo si no hubo JSON válido con status OK"
+      ansible.builtin.assert:
+        that:
+          - _out is defined
+          - _out.status is defined
+          - _out.status in ['OK', 'SKIPPED']
+        fail_msg: "El smoke test NO pasó."
+        success_msg: "Smoke test superado."

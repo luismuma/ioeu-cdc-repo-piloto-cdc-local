@@ -1,0 +1,9 @@
+#IIDR Access Server connection — rellenar antes del primer arranque
+asHostName=lesawsew131211.es.mapfre.net
+asPort=10101
+# Usuario LDAP (prefijo APP- por política Mapfre). El rol lo da el grupo LDAP
+# del usuario en el Access Server. deploy.sh lo sobreescribe con AS_USERNAME.
+asUserName=APP-cdcauto
+# Cifrar con bin/iidr-encrypt.sh (del repo iidr-install) usando IBM Encryptor
+asPassword=<<AS_PASSWORD_ENC>>
+registryFile=conf/table_subscription_registry.csv

@@ -1,0 +1,342 @@
+---
+# auto_cdc-controller_trandata.yml — runs the cdc-controller config_trandata command.
+#
+# Configures Oracle supplemental logging (TRANDATA) for the tables listed in the
+# input JSON via OGG Microservices REST API. Idempotent: if the credential alias
+# is missing it is created; if TRANDATA is already active on a table it is skipped.
+#
+# === SECRETS ===
+#   All secrets come from AWS Secrets Manager via the AAP custom credential
+#   'cdc-controller-custom-credential-dev' (cdc-secret-lookup), which injects
+#   the full secret JSON as extra-vars aws_secret_json_dev / _pre / _pro.
+#   The playbook parses the right one (based on ogg_env) into _vault.
+#
+#   Expected keys in the AWS SM secret JSON (naming: <TECH>_<ID>_<USER>):
+#     OGG_OGGADMIN                  → remapped to OGG_ADMIN_PASSWORD (OGG REST API)
+#     ORACLE_<PDB>_GGADMIN          → injected as-is (matches password_credential in db_connections.yaml)
+#                                     e.g. ORACLE_ACNPDB_GGADMIN, ORACLE_BDMPRE_GGADMIN
+#                                     AWS SM keys must NOT include C## (use ORACLE_<PDB>_GGADMIN)
+#
+# Required at launch:
+#   ogg_env                  : informational tag ('dev' / 'pre' / 'pro') — printed to log
+#   cdc_input_json_content   : raw JSON pasted in the AAP Survey textarea    (or)
+#   cdc_input_file           : path to a JSON file on disk (CLI tests)
+#
+#   Mandatory JSON fields (only these 5 are required):
+#     env, request_type (CREATE | DELETE | STATUS), bbdd_engine (ORACLE), bbdd_name, tables
+#
+# AAP setup:
+#   - Credential required: cdc-controller-custom-credential-dev (cdc-secret-lookup)
+#     Injects aws_secret_json_dev / aws_secret_json_pre / aws_secret_json_pro
+#     extra-vars from AWS Secrets Manager (flat JSON object per environment).
+#   - Survey fields (recommended):
+#       Variable name             | Type                          | Required
+#       --------------------------|-------------------------------|---------------------------
+#       ogg_env                   | Multiple Choice (dev/pre/pro)  | Always
+#       cdc_input_json_content    | Textarea                      | Always (or cdc_input_file)
+#
+# CLI usage (local test):
+#   ansible-playbook cdc-controller/ansible/auto_cdc-controller_trandata.yml \
+#     --extra-vars "ogg_env=dev cdc_input_file=trandata_DEV_ACNPDB.json
+#                   aws_secret_json_dev='{\"OGG_OGGADMIN\":\"x\",\"ORACLE_ACNPDB_GGADMIN\":\"y\"}'"
+#
+# Exit codes:
+#   0  -> config_trandata OK
+#   1  -> config_trandata ERROR (some table or connection check failed)
+#   2  -> playbook precondition failed
+
+- name: cdc-controller config_trandata
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars:
+    ansible_python_interpreter: "{{ aap_ansible_python | default('/usr/bin/python3') }}"
+
+    # Repo layout: this playbook lives in <project>/cdc-controller/ansible/.
+    cdc_repo_root:  "{{ playbook_dir }}/../.."
+    cdc_dir:        "{{ cdc_repo_root }}/cdc-controller"
+    cdc_input_root: "{{ cdc_dir }}/input"
+    cdc_script:     "{{ cdc_dir }}/cdc-controller.py"
+    cdc_python:     "{{ cdc_python_interpreter | default('python3') }}"
+
+    # Inputs — defaults are empty so missing values are caught by the precondition asserts.
+    ogg_env:                ""
+    # AWS SM secret JSON strings — injected as extra-vars by 'cdc-controller-custom-credential-dev'
+    # (cdc-secret-lookup). One per environment; the playbook selects based on ogg_env.
+    aws_secret_json_dev: ""
+    aws_secret_json_pre: ""
+    aws_secret_json_pro: ""
+    cdc_input_file:         ""
+    cdc_input_json_content: ""
+
+    # Resolved at runtime — either the user-provided path or the temp file we materialize.
+    _cdc_resolved_path: ""
+
+    # Log — stdout capture directory
+    cdc_log_dir: "{{ cdc_dir }}/logs"
+
+    _cdc_input_file_path: >-
+      {%- if cdc_input_file == '' -%}
+      {{ '' }}
+      {%- elif cdc_input_file is search('^([A-Za-z]:[\\\\/]|/)') -%}
+      {{ cdc_input_file }}
+      {%- elif cdc_input_file is search('[/\\\\]') -%}
+      {{ cdc_repo_root }}/{{ cdc_input_file }}
+      {%- else -%}
+      {{ cdc_input_root }}/{{ cdc_input_file }}
+      {%- endif -%}
+
+  tasks:
+
+    - name: "Diagnostic — show received inputs (passwords masked)"
+      ansible.builtin.debug:
+        msg:
+          - "ogg_env: '{{ ogg_env }}'"
+          - "cdc_input_json_content (length): {{ cdc_input_json_content | length }}"
+          - "cdc_input_file: '{{ cdc_input_file }}'"
+          - "aws_secret_json_{{ ogg_env }} provided: {{ (vars['aws_secret_json_' + ogg_env] | length > 0) }}"
+
+    - name: "Precondition — ogg_env must be one of dev / pre / pro"
+      ansible.builtin.assert:
+        that:
+          - ogg_env | string in ['dev', 'pre', 'pro']
+        fail_msg: >-
+          'ogg_env' is required and must be one of: dev, pre, pro.
+
+    - name: "Precondition — one of cdc_input_json_content or cdc_input_file must be provided"
+      ansible.builtin.assert:
+        that:
+          - (cdc_input_json_content | length > 0) or (cdc_input_file | length > 0)
+        fail_msg: >-
+          Provide either 'cdc_input_json_content' (raw JSON pasted in the AAP Survey textarea)
+          or 'cdc_input_file' (path to a JSON file on disk, e.g. for CLI tests).
+
+    - name: "Precondition — secrets are available"
+      ansible.builtin.assert:
+        that:
+          - vars['aws_secret_json_' + ogg_env] | length > 0
+        fail_msg: >-
+          aws_secret_json_{{ ogg_env }} must be injected by the 'cdc-controller-custom-credential-dev'
+          credential (cdc-secret-lookup → AWS Secrets Manager).
+          For CLI usage: pass --extra-vars "aws_secret_json_dev='{\"OGG_OGGADMIN\":\"x\",\"ORACLE_ACNPDB_GGADMIN\":\"y\"}'"
+
+    - name: "Precondition — cdc-controller.py is present in the project"
+      ansible.builtin.stat:
+        path: "{{ cdc_script }}"
+      register: script_stat
+
+    - name: "Fail if cdc-controller.py is not present"
+      ansible.builtin.assert:
+        that: script_stat.stat.exists
+        fail_msg: "cdc-controller.py not found at: {{ cdc_script }}  (project layout broken?)"
+
+    # ── Resolve the input ──
+    - name: "MODE A — materialize cdc_input_json_content to a temp file"
+      when: cdc_input_json_content | length > 0
+      block:
+
+        - name: "Validate the pasted content parses as JSON (fail-fast)"
+          ansible.builtin.set_fact:
+            _cdc_parsed_content: "{{ cdc_input_json_content | from_json }}"
+
+        - name: "Create a temporary file inside the EE"
+          ansible.builtin.tempfile:
+            state:  file
+            suffix: ".json"
+            prefix: "cdc_input_"
+          register: _cdc_tmpfile
+
+        - name: "Write the JSON content to the temp file"
+          ansible.builtin.copy:
+            content: "{{ cdc_input_json_content }}"
+            dest:    "{{ _cdc_tmpfile.path }}"
+            mode:    "0600"
+
+        - name: "Use the temp file as the resolved input path"
+          ansible.builtin.set_fact:
+            _cdc_resolved_path: "{{ _cdc_tmpfile.path }}"
+
+      rescue:
+
+        - name: "Surface a clear error when the pasted content is not valid JSON"
+          ansible.builtin.fail:
+            msg: >-
+              cdc_input_json_content is not valid JSON. Paste the full JSON object as a
+              single block of text in the Survey textarea.
+
+    - name: "MODE B — use cdc_input_file path (only when content was NOT provided)"
+      ansible.builtin.set_fact:
+        _cdc_resolved_path: "{{ _cdc_input_file_path }}"
+      when:
+        - cdc_input_json_content | length == 0
+        - cdc_input_file | length > 0
+
+    - name: "Verify the resolved input file exists and is a regular file"
+      ansible.builtin.stat:
+        path: "{{ _cdc_resolved_path }}"
+      register: input_stat
+
+    - name: "Fail if the input file is missing"
+      ansible.builtin.assert:
+        that:
+          - input_stat.stat.exists
+          - input_stat.stat.isreg
+        fail_msg: "JSON input file not found at: {{ _cdc_resolved_path }}"
+
+    - name: "Parse input file for metadata (mode B — file path provided)"
+      ansible.builtin.set_fact:
+        _cdc_parsed_content: "{{ lookup('file', _cdc_resolved_path) | from_json }}"
+      when: _cdc_parsed_content is not defined
+
+    - name: "Show resolved parameters"
+      ansible.builtin.debug:
+        msg:
+          - "ogg_env:  {{ ogg_env }}"
+          - "Python:   {{ cdc_python }}"
+          - "Script:   {{ cdc_script }}"
+          - "Input:    {{ _cdc_resolved_path }}"
+          - "Workdir:  {{ cdc_dir }}"
+          - "Source:   {{ 'AAP textarea (cdc_input_json_content)' if cdc_input_json_content | length > 0 else 'file path (cdc_input_file)' }}"
+
+    # ── Execute cdc-controller and always cleanup the temp file (if any) ──
+    - name: "Execute cdc-controller -config_trandata"
+      block:
+
+        - name: "Parse AWS SM secret JSON for the current environment"
+          ansible.builtin.set_fact:
+            _vault: >-
+              {{ (aws_secret_json_dev if ogg_env == 'dev' else
+                  aws_secret_json_pre if ogg_env == 'pre' else
+                  aws_secret_json_pro) | from_json }}
+          no_log: true
+
+        - name: "Build environment for cdc-controller subprocess"
+          ansible.builtin.set_fact:
+            _cdc_env:
+              OGG_ADMIN_PASSWORD: "{{ _vault['OGG_OGGADMIN'] }}"
+              LD_LIBRARY_PATH:    "{{ cdc_oracle_client_path | default(lookup('env', 'LD_LIBRARY_PATH')) }}"
+          no_log: true
+
+        - name: "Inject OGG / ORACLE secrets from vault as-is (key name = env var name)"
+          ansible.builtin.set_fact:
+            _cdc_env: >-
+              {{ _cdc_env | combine(
+                _vault | dict2items
+                       | selectattr('key', 'match', '^(OGG_|ORACLE_)')
+                       | list | items2dict
+              ) }}
+          no_log: true
+
+        - name: Create log directory
+          ansible.builtin.file:
+            path:  "{{ cdc_log_dir }}"
+            state: directory
+            mode:  "0750"
+
+        - name: Resolve trandata log path
+          ansible.builtin.set_fact:
+            cdc_log_path: "{{ cdc_log_dir }}/cdc_trandata_{{ now(fmt='%Y%m%d_%H%M%S') }}.log"
+
+        - name: "Derive and register reporting hosts"
+          ansible.builtin.include_tasks: "{{ playbook_dir }}/../../ansible/common/_resolve_reporting_hosts.yml"
+
+        - name: "Run cdc-controller -config_trandata"
+          ansible.builtin.command:
+            cmd:   "{{ cdc_python }} {{ cdc_script }} -config_trandata {{ _cdc_resolved_path }}"
+            chdir: "{{ cdc_dir }}"
+          environment: "{{ _cdc_env }}"
+          register: cdc_result
+          changed_when: >-
+            cdc_result.stdout_lines | default([]) | select('search', 'trandata add') | list | length > 0
+          failed_when:  false
+
+        - name: "cdc-controller output"
+          ansible.builtin.debug:
+            var: cdc_result.stdout_lines
+          when: cdc_result.stdout_lines | default([]) | length > 0
+
+        - name: "cdc-controller stderr (if any)"
+          ansible.builtin.debug:
+            msg: "{{ cdc_result.stderr_lines }}"
+          when:
+            - cdc_result.stderr_lines | default([]) | length > 0
+
+        - name: "cdc-controller return code"
+          ansible.builtin.debug:
+            msg: "rc = {{ cdc_result.rc | default('unknown') }}"
+
+        - name: "Write cdc-controller output to log file"
+          ansible.builtin.copy:
+            content: "{{ cdc_result.stdout | default('') }}{{ ('\n' + cdc_result.stderr) if cdc_result.stderr | default('') | length > 0 else '' }}"
+            dest: "{{ cdc_log_path }}"
+            mode: "0644"
+
+        - name: "Record cdc-controller result"
+          ansible.builtin.set_fact:
+            cdc_trandata_failed: >-
+              {{ (cdc_result.stdout_lines | default([]) | select('search', ' - ERROR: ') | list | length > 0)
+                 or ((cdc_result.rc | default(1) | int) != 0) }}
+            cdc_trandata_fail_msg: >-
+              {%- if cdc_result.stdout_lines | default([]) | select('search', ' - ERROR: ') | list | length > 0 -%}
+              cdc-controller -config_trandata found ERROR(s) (rc={{ cdc_result.rc }}).
+              ERROR lines: {{ cdc_result.stdout_lines | default([]) | select('search', ' - ERROR: ') | list | join('\n') }}
+              {%- else -%}
+              cdc-controller -config_trandata exited with rc={{ cdc_result.rc }}. See output above.
+              {%- endif -%}
+
+      always:
+
+        - name: "Cleanup — remove the temp JSON file if we created one"
+          ansible.builtin.file:
+            path:  "{{ _cdc_tmpfile.path }}"
+            state: absent
+          when: _cdc_tmpfile.path is defined
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Play 2: Copy log to reporting server
+# Play 1 never fails localhost (uses set_fact instead of fail:), which guarantees
+# this play always runs even when cdc-controller returned rc != 0.
+# The actual failure is reported in Play 3.
+# ─────────────────────────────────────────────────────────────────────────────
+- name: cdc-controller config_trandata — Copy log to reporting server
+  hosts: _cdc_log_targets
+  gather_facts: false
+
+  tasks:
+
+    - name: Create log directory on reporting server
+      ansible.builtin.file:
+        path:  "{{ hostvars['localhost']['cdc_remote_log_dir'] }}"
+        state: directory
+        mode:  "0755"
+
+    - name: Copy log to reporting server
+      ansible.builtin.copy:
+        src:  "{{ hostvars['localhost']['cdc_log_path'] }}"
+        dest: "{{ hostvars['localhost']['cdc_remote_log_dir'] }}/{{ hostvars['localhost']['cdc_log_path'] | basename }}"
+        mode: "0644"
+      ignore_errors: true
+
+    - name: Confirm log delivery
+      ansible.builtin.debug:
+        msg:
+          - "Log copied to {{ hostvars['localhost']['cdc_remote_log_dir'] }}/"
+          - "File: {{ hostvars['localhost']['cdc_log_path'] | basename }}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Play 3: Report cdc-controller failure
+# Play 1 recorded the result in cdc_trandata_failed without failing localhost.
+# This play applies the actual fail so AAP marks the job as failed.
+# ─────────────────────────────────────────────────────────────────────────────
+- name: cdc-controller config_trandata — Verify result
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  tasks:
+
+    - name: "Fail if cdc-controller exited with error"
+      ansible.builtin.fail:
+        msg: "{{ hostvars['localhost']['cdc_trandata_fail_msg'] }}"
+      when: hostvars['localhost']['cdc_trandata_failed'] | default(false) | bool

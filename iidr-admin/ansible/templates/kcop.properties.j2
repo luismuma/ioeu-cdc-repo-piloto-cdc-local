@@ -1,0 +1,64 @@
+{#
+  Plantilla del fichero de propiedades del KCOP (Kafka Custom Operation
+  Processor) para una suscripción con destino Kafka.
+
+  Se renderiza desde subscriptions.yml (action=setup-kafka) y se deposita en
+  el motor Kafka, en:
+    /u01/IIDR/ReplicationEngineforKafka/instance/<KAFKA_DS>/conf/<SUB>.properties
+
+  Variables esperadas (del playbook / extra-vars / secreto AWS SM):
+    kcop_sub                nombre de la suscripción (ej. DESACDC3)
+    kcop_kafka_ds           datastore Kafka destino (ej. IIDR_GR_KFK_R01_AWS_DEV)
+    kcop_topic_prefix       prefijo de topics (ej. esp.int.cac.bronze.grcdcpiloto)
+    kcop_database           base de datos origen para el namespace (ej. DB2DSNT)
+    kcop_audit_record_name  nombre del record de auditoría (ej. DB2)
+    kcop_tables             lista de tablas "SCHEMA.TABLA" (ej. [REAL.TB030T001, ...])
+    kcop_sr_url             URL del Schema Registry
+    kcop_sr_issuer_url      endpoint OAuth (issuer) del token
+    kcop_sr_scope           scope OAuth
+    kcop_sr_logical_cluster logical cluster del Schema Registry
+    kcop_sr_client_id       (secreto AWS) client id OAuth
+    kcop_sr_client_secret   (secreto AWS) client secret OAuth
+    kcop_sr_pool_id         (secreto AWS) identity pool id
+#}
+# =====================================================================
+# PARTE 1 — Schema Registry (conexión y autenticación OAuth)
+# =====================================================================
+schema.registry.url={{ kcop_sr_url }}
+
+# El KCOP usa el prefijo "serializer.property." para pasar estas variables
+# como propiedad al cliente del Schema Registry.
+serializer.property.bearer.auth.credentials.source=OAUTHBEARER
+serializer.property.bearer.auth.issuer.endpoint.url={{ kcop_sr_issuer_url }}
+serializer.property.bearer.auth.client.id={{ kcop_sr_client_id }}
+serializer.property.bearer.auth.client.secret={{ kcop_sr_client_secret }}
+serializer.property.bearer.auth.scope={{ kcop_sr_scope }}
+serializer.property.bearer.auth.logical.cluster={{ kcop_sr_logical_cluster }}
+serializer.property.bearer.auth.identity.pool.id={{ kcop_sr_pool_id }}
+
+# =====================================================================
+# PARTE 2 — Mapeo de tablas de origen a topics de Kafka
+# =====================================================================
+{% for t in kcop_tables %}
+{% set schema = t.split('.')[0] %}
+{% set table = t.split('.')[1] %}
+MAP_TABLE_{{ kcop_kafka_ds | lower }}.{{ kcop_sub | lower }}.sourcedb.{{ schema | lower }}.{{ table | lower }}={{ kcop_topic_prefix }}.{{ table | lower }}_cdc
+{% endfor %}
+
+# =====================================================================
+# PARTE 3 — Envelope del esquema AVRO y campos de control (journal)
+# =====================================================================
+audit.jcfs=ENTTYP->opType,CCID->operationId,SEQNO->operationSeq,CNTRRN->operationPos,UTC_TIMESTAMP->opTs
+audit.record.name={{ kcop_audit_record_name }}
+before.image.field.name=before
+after.image.field.name=after
+
+# =====================================================================
+# PARTE 4 — Transformación del esquema AVRO por cada tabla
+# =====================================================================
+{% for t in kcop_tables %}
+{% set schema = t.split('.')[0] %}
+{% set table = t.split('.')[1] %}
+MODIFY_SCHEMA_value.SOURCEDB.{{ schema | upper }}.{{ table | upper }}_SET_NAMESPACE={{ kcop_database }}.{{ schema | upper }}.{{ table | upper }}
+MODIFY_SCHEMA_value.SOURCEDB.{{ schema | upper }}.{{ table | upper }}_SET_NAME=Row
+{% endfor %}

@@ -1,0 +1,155 @@
+---
+# =============================================================================
+# extra_vars_sample.yml
+# Variables extra para la plantilla de trabajo AAP/AWX — OGG Daily Report
+#
+# Uso: copiar el contenido en Job Template → Extra Variables en AAP.
+#
+# El playbook se ejecuta en el nodo de ejecución de AAP (localhost/connection:local).
+# AAP hace el checkout del repo desde SCM y todas las rutas se derivan de
+# playbook_dir automáticamente — no es necesario configurar rutas manualmente.
+#
+# Las credenciales OGG y Oracle NO van aquí — configurarlas como
+# Custom Credential en AAP (ver sección al final).
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Intérprete Python (opcional — solo si el runner de AAP necesita una ruta específica)
+#
+# aap_ansible_python    → Python que usa Ansible internamente.
+#                          AAP lo inyecta automáticamente desde el Execution Environment.
+#                          Solo especificar si hay problemas de intérprete.
+#
+# ogg_python_interpreter → Python usado para ejecutar ogg_report.py.
+#                          Por defecto 'python3'. Cambiar si el EE tiene el
+#                          venv con las dependencias en otra ruta.
+#                          Debe tener instalado: pyyaml, requests, jinja2
+#                          Opcional (metadatos Oracle): oracledb, boto3
+# -----------------------------------------------------------------------------
+# aap_ansible_python:    "/usr/bin/python3"
+# ogg_python_interpreter: "python3"
+
+# -----------------------------------------------------------------------------
+# Filtro de deployment (opcional)
+# Dejar vacío para procesar todos los deployments del inventario OGG.
+# Acepta uno o varios deployment keys separados por coma.
+# Útil para pruebas o reruns parciales.
+# Ejemplos:
+#   filter_deploy: "OGG_CDC_ODB_ORA_E01_AWS_PRE"
+#   filter_deploy: "OGG_INI_ODB_ORA_E01_AWS_PRE,OGG_INI_ODB_DAA_R01_AWS_PRE"
+# -----------------------------------------------------------------------------
+filter_deploy: ""
+
+# -----------------------------------------------------------------------------
+# Polling de progreso en AAP
+#
+# ogg_poll_interval_sec : segundos entre cada lectura del log durante la ejecución
+#                         del script. Valores típicos: 60, 120 (default), 300.
+#
+# ogg_poll_max_minutes  : límite máximo de espera en minutos.
+#                         0 (default) = sin límite explícito — el job se cancelará
+#                         solo si el job template de AAP tiene un timeout configurado.
+#                         Internamente se usan 1440 min (24 h) como techo de seguridad.
+# -----------------------------------------------------------------------------
+ogg_poll_interval_sec: 120   # 2 minutos entre polls
+ogg_poll_max_minutes:  0     # 0 = sin límite
+
+# -----------------------------------------------------------------------------
+# Email (opcional — dejar email_to vacío para no enviar)
+# -----------------------------------------------------------------------------
+
+# Destinatarios separados por coma. Si está vacío se omite el paso de email.
+email_to: ""
+# email_to: "team-cdc@mapfre.com, manager@mapfre.com"
+
+# Remitente del correo
+email_from: "ogg-monitoring@mapfre.com"
+
+# Relay SMTP corporativo
+smtp_host: "smtp.es.mapfre.net"
+
+# Puerto SMTP
+#   25  → sin cifrado (relay interno)
+#   587 → STARTTLS (recomendado con smtp_tls: true)
+#   465 → SMTPS implícito (no soportado por smtplib.SMTP, usar 587+tls)
+smtp_port: 25
+
+# STARTTLS — activar si el relay lo requiere (normalmente puerto 587)
+smtp_tls: false
+
+# Autenticación SMTP — dejar vacíos si el relay no lo requiere
+# Si smtp_password se rellena, la tarea usará no_log para no exponer la contraseña en los logs
+smtp_user:     ""
+smtp_password: ""
+
+# -----------------------------------------------------------------------------
+# Reporting host — copia el HTML y el log a un servidor remoto vía SSH (opcional)
+#
+# Si reporting_host está configurado, el playbook:
+#   1. Crea el directorio {reporting_base_path}/{YYYYMMDD}/ en el host remoto
+#   2. Copia el HTML y el log generados a ese directorio
+#
+# Requiere:
+#   - SSH key del EE autorizada en el reporting host
+#   - Machine Credential con acceso SSH al host configurada en la plantilla AAP
+#
+# Dejar reporting_host vacío para deshabilitar.
+#
+# Variables opcionales (valores por defecto del playbook):
+#   reporting_user:       "ec2-user"               SSH user en el reporting host
+#   reporting_become:     false                     true → become oracle vía sudo
+#   reporting_become_exe: "/usr/bin/sudo"           ruta a sudo (si reporting_become: true)
+#   reporting_base_path:  "/u01/repo/reporting_dataia/reports_from_AAP"
+# -----------------------------------------------------------------------------
+reporting_host: ""   # ej. "lesawsew161156.es.mapfre.net"
+
+# Descomentar solo si es necesario sobreescribir el valor por defecto:
+# reporting_become: true          # necesario si ec2-user no tiene permisos directos en reporting_base_path
+# reporting_base_path: "/ruta/alternativa"
+
+# -----------------------------------------------------------------------------
+# S3 — URL prefirmada para descarga directa desde AAP (opcional)
+#
+# Si s3_bucket está configurado, el playbook:
+#   1. Sube el HTML al bucket S3 con clave {s3_prefix}/{YYYYMMDD}/{report_file}
+#   2. Genera una URL prefirmada con TTL configurable (por defecto 24h)
+#   3. Imprime la URL en el output del job y la publica en el resumen AAP
+#      (accesible en Job → Artifacts dentro de la interfaz de AAP)
+#
+# Requiere:
+#   - boto3 instalado en el intérprete ogg_python
+#   - Credenciales AWS disponibles en el EE (rol IAM o variables de entorno)
+#   - Permiso s3:PutObject y s3:GetObject en el bucket
+#
+# Dejar s3_bucket vacío para deshabilitar.
+# -----------------------------------------------------------------------------
+s3_bucket:  ""           # ej. "mapfre-ogg-reports"
+s3_prefix:  "ogg-reports"  # prefijo/carpeta dentro del bucket
+s3_url_ttl: 86400        # TTL de la URL prefirmada en segundos (86400 = 24h)
+s3_region:  ""           # vacío → usa la región del rol IAM del Execution Environment
+
+# =============================================================================
+# CREDENCIALES — Custom Credential tipo cdc-secret-lookup (AWS Secrets Manager)
+# =============================================================================
+# Usar el mismo Custom Credential que usan los playbooks de cdc-controller.
+# Tipo: cdc-secret-lookup — inyecta aws_secret_json_dev/pre/pro como extra-vars
+# con el contenido completo del secreto JSON de AWS SM por entorno.
+#
+# El playbook fusiona los tres JSONs y pasa al script OGG todas las claves cuyo
+# nombre empiece por OGG_ / ORACLE_ / MONGO_ / AWS_.
+#
+# Claves esperadas en cada secreto AWS SM (mismo formato que cdc-controller):
+#
+#   OGG_OGGADMIN                   → Basic Auth password del OGG de ese entorno
+#   OGG_AUTH_PROFILE_CLIENT_SECRET → Entra ID client secret de ese entorno
+#   ORACLE_<PDB>_GGADMIN           → ej. ORACLE_ACNPDB_GGADMIN
+#   MONGO_<DB>_<USER>              → ej. MONGO_CDCTEST_DDL
+#
+# El playbook pasa los JSON completos como OGG_VAULT_DEV/PRE/PRO al script.
+# ogg_report.py selecciona el vault correcto por deployment (env=DEV/PRE/PRO)
+# y extrae OGG_OGGADMIN y OGG_AUTH_PROFILE_CLIENT_SECRET de forma independiente,
+# sin mezclar secretos entre entornos.
+#
+# NO incluir estos valores aquí. Configurar el Custom Credential en AAP y
+# asignarlo a la plantilla de trabajo del OGG Daily Report.
+# =============================================================================

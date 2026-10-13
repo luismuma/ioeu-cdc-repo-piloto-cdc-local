@@ -1,0 +1,18 @@
+EXTRACT {{ extract_name }}
+
+-- DB Connection
+SOURCEDB USERIDALIAS {{ useridalias }}{% if domain %} DOMAIN {{ domain }}{% endif %}
+
+-- Encryption using local wallet master key
+ENCRYPTTRAIL AES256
+
+-- TRAIL NAME
+EXTFILE {{ trail_path }} MEGABYTES 2000 PURGE
+
+-- JVMOPTIONS CLASSPATH
+JVMOPTIONS CLASSPATH {{ ogg_home | default('/u01/ogg/ogg26ai') }}/ggjava/ggjava.jar:/u01/ogg/dependencies/mongodb_capture_5.1.0/*
+
+-- Tables
+{% for line in table_lines %}
+{{ line }}
+{% endfor %}
